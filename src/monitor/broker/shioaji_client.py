@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import shioaji as sj
+from loguru import logger
+
+
+@dataclass(frozen=True)
+class SnapshotRow:
+    code: str
+    name: str
+    close: float
+    change_price: float
+    change_rate: float
+    total_volume: int
+
+
+class ShioajiClient:
+    def __init__(self, api_key: str, secret_key: str, simulation: bool = False) -> None:
+        self._api = sj.Shioaji(simulation=simulation)
+        self._api_key = api_key
+        self._secret_key = secret_key
+        self._simulation = simulation
+
+    def login(self) -> None:
+        logger.info("Shioaji login (simulation={})", self._simulation)
+        self._api.login(api_key=self._api_key, secret_key=self._secret_key)
+        logger.info("Shioaji login OK")
+
+    def logout(self) -> None:
+        try:
+            self._api.logout()
+        except Exception as exc:
+            logger.warning("Shioaji logout failed: {}", exc)
+
+    def snapshots(self, symbols: list[str]) -> list[SnapshotRow]:
+        contracts = []
+        name_by_code: dict[str, str] = {}
+        for sym in symbols:
+            contract = self._api.Contracts.Stocks[sym]
+            if contract is None:
+                logger.warning("Unknown symbol, skipped: {}", sym)
+                continue
+            contracts.append(contract)
+            name_by_code[contract.code] = contract.name
+
+        if not contracts:
+            return []
+
+        raw = self._api.snapshots(contracts)
+        rows: list[SnapshotRow] = []
+        for s in raw:
+            rows.append(
+                SnapshotRow(
+                    code=s.code,
+                    name=name_by_code.get(s.code, ""),
+                    close=float(s.close),
+                    change_price=float(s.change_price),
+                    change_rate=float(s.change_rate),
+                    total_volume=int(s.total_volume),
+                )
+            )
+        return rows
