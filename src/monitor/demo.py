@@ -9,6 +9,7 @@ from monitor.broker.shioaji_client import ShioajiClient
 from monitor.config import load_settings
 from monitor.data.bar_builder import BarBuilder
 from monitor.data.historical import load_history
+from monitor.data.mock import make_mock_history
 from monitor.indicators.compute import compute_last
 from monitor.notify.telegram import TelegramNotifier
 
@@ -68,23 +69,27 @@ def _telegram_summary(builder: BarBuilder, sym: str) -> str:
     )
 
 
-async def _run() -> int:
+async def _run(mock: bool = False) -> int:
     settings = load_settings()
-    client = ShioajiClient(
-        api_key=settings.shioaji_api_key,
-        secret_key=settings.shioaji_secret_key,
-        simulation=settings.shioaji_simulation,
-    )
     notifier = TelegramNotifier(
         bot_token=settings.telegram_bot_token,
         chat_id=settings.telegram_chat_id,
     )
 
-    client.login()
-    try:
-        hist = load_history(client, settings.symbols, lookback_days=60)
-    finally:
-        client.logout()
+    if mock:
+        logger.info("Mock mode: generating synthetic 30-day history (no Shioaji login)")
+        hist = make_mock_history(settings.symbols, n_days=30)
+    else:
+        client = ShioajiClient(
+            api_key=settings.shioaji_api_key,
+            secret_key=settings.shioaji_secret_key,
+            simulation=settings.shioaji_simulation,
+        )
+        client.login()
+        try:
+            hist = load_history(client, settings.symbols, lookback_days=60)
+        finally:
+            client.logout()
 
     if not hist:
         msg = "M2 demo: 無歷史資料 (非交易日/模擬資料空)"
@@ -104,4 +109,5 @@ async def _run() -> int:
 def indicators_demo() -> None:
     logger.remove()
     logger.add(sys.stderr, level="INFO")
-    sys.exit(asyncio.run(_run()))
+    mock = "--mock" in sys.argv
+    sys.exit(asyncio.run(_run(mock=mock)))
