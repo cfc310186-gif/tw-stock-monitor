@@ -1,0 +1,15 @@
+- name: bb_reversal_5m
+  enabled: true
+  timeframe: 5m
+  side: lower          # lower | upper
+  period: 20
+  stddev: 2
+  cooldown_minutes: 30
+
+- name: bb_reversal_upper_5m
+  enabled: false       # disabled until needed
+  timeframe: 5m
+  side: upper
+  period: 20
+  stddev: 2
+  cooldown_minutes: 30
