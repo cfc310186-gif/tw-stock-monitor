@@ -33,9 +33,10 @@ def _optional(name: str) -> str | None:
     return value if value else None
 
 
-def load_settings(config_dir: Path | str = "config") -> Settings:
+def load_watchlist(config_dir: Path | str = "config") -> list[str]:
+    """Load symbols from watchlist.yaml; also loads .env so callers can read
+    individual env vars without needing the full Shioaji/Telegram bundle."""
     config_dir = Path(config_dir)
-
     env_path = config_dir / ".env"
     if env_path.exists():
         load_dotenv(env_path)
@@ -45,7 +46,11 @@ def load_settings(config_dir: Path | str = "config") -> Settings:
     symbols = [str(s) for s in watchlist.get("symbols", [])]
     if not symbols:
         raise RuntimeError(f"No symbols found in {watchlist_path}")
+    return symbols
 
+
+def load_settings(config_dir: Path | str = "config") -> Settings:
+    symbols = load_watchlist(config_dir)
     return Settings(
         shioaji_api_key=_required("SHIOAJI_API_KEY"),
         shioaji_secret_key=_required("SHIOAJI_SECRET_KEY"),

@@ -39,11 +39,11 @@ class RuleEngine:
         self._global_last: dict[str, datetime] = {}        # symbol → triggered_at
 
     @classmethod
-    def from_yaml(cls, path: Path | str) -> "RuleEngine":
+    def from_yaml(cls, path: Path | str, include_disabled: bool = False) -> "RuleEngine":
         raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
         rules: list[Rule] = []
         for cfg in raw:
-            if not cfg.get("enabled", True):
+            if not include_disabled and not cfg.get("enabled", True):
                 continue
             matched = False
             for key, rule_cls in _RULE_CLASSES.items():

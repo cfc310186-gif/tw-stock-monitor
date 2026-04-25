@@ -47,6 +47,10 @@ class BbReversalRule(Rule):
     def cooldown_minutes(self) -> int:
         return self._cooldown
 
+    @property
+    def expected_direction(self) -> str:
+        return "long" if self._side == "lower" else "short"
+
     @classmethod
     def from_config(cls, cfg: dict) -> "BbReversalRule":
         return cls(
