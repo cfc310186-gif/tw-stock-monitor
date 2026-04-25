@@ -84,8 +84,9 @@ def plot_candles(
 
     width = 0.6
     for i, row in df.iterrows():
-        is_green = row["close"] > row["open"]
-        color = "#22aa55" if is_green else "#cc3344"
+        is_bullish = row["close"] > row["open"]   # 紅K
+        # TW convention: 紅K (close > open) = red body; 黑K (close < open) = green body
+        color = "#d62728" if is_bullish else "#2ca02c"
         # wick
         ax.vlines(i, row["low"], row["high"], color="black", linewidth=0.8, zorder=2)
         # body
