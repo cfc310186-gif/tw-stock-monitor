@@ -1,3 +1,6 @@
+# Rule names must contain the rule-class key as a substring:
+#   bb_reversal | ma_cross_reversal | range_breakout
+
 - name: bb_reversal_5m
   enabled: true
   timeframe: 5m
@@ -7,9 +10,43 @@
   cooldown_minutes: 30
 
 - name: bb_reversal_upper_5m
-  enabled: false       # disabled until needed
+  enabled: false
   timeframe: 5m
   side: upper
   period: 20
   stddev: 2
   cooldown_minutes: 30
+
+# Golden-cross / death-cross (M5)
+- name: ma_cross_reversal_up_5m
+  enabled: false
+  timeframe: 5m
+  short: 5
+  long: 20
+  direction: up        # up = 黃金交叉, down = 死亡交叉
+  ma_type: ema         # ema | sma
+  cooldown_minutes: 30
+
+- name: ma_cross_reversal_down_5m
+  enabled: false
+  timeframe: 5m
+  short: 5
+  long: 20
+  direction: down
+  ma_type: ema
+  cooldown_minutes: 30
+
+# N-bar Donchian breakout (M5)
+- name: range_breakout_up_15m
+  enabled: false
+  timeframe: 15m
+  period: 20
+  direction: up        # up = 突破前高, down = 跌破前低
+  cooldown_minutes: 60
+
+- name: range_breakout_down_15m
+  enabled: false
+  timeframe: 15m
+  period: 20
+  direction: down
+  cooldown_minutes: 60

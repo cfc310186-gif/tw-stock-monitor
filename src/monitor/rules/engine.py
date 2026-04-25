@@ -9,8 +9,14 @@ from loguru import logger
 
 from monitor.rules.base import Rule, Signal
 from monitor.rules.bb_reversal import BbReversalRule
+from monitor.rules.ma_cross_reversal import MaCrossReversalRule
+from monitor.rules.range_breakout import RangeBreakoutRule
 
 _RULE_CLASSES: dict[str, type[Rule]] = {
+    # Order matters: longer / more-specific keys first so substring matching
+    # picks the correct rule when names share a prefix.
+    "ma_cross_reversal": MaCrossReversalRule,
+    "range_breakout": RangeBreakoutRule,
     "bb_reversal": BbReversalRule,
 }
 

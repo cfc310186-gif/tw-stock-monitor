@@ -152,3 +152,37 @@ def test_from_yaml(tmp_path: Path):
     # Only 1 enabled rule
     assert len(engine._rules) == 1
     assert engine._rules[0].name == "bb_reversal_5m"
+
+
+def test_from_yaml_loads_all_rule_types(tmp_path: Path):
+    """M5: YAML can mix bb_reversal / ma_cross_reversal / range_breakout."""
+    yaml_content = """
+- name: bb_reversal_5m
+  enabled: true
+  timeframe: 5m
+  side: lower
+  period: 20
+  stddev: 2
+- name: ma_cross_reversal_up_5m
+  enabled: true
+  timeframe: 5m
+  short: 5
+  long: 20
+  direction: up
+  ma_type: ema
+- name: range_breakout_up_15m
+  enabled: true
+  timeframe: 15m
+  period: 20
+  direction: up
+"""
+    from monitor.rules.bb_reversal import BbReversalRule
+    from monitor.rules.ma_cross_reversal import MaCrossReversalRule
+    from monitor.rules.range_breakout import RangeBreakoutRule
+
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text(yaml_content)
+    engine = RuleEngine.from_yaml(rules_file)
+
+    classes = {type(r) for r in engine._rules}
+    assert classes == {BbReversalRule, MaCrossReversalRule, RangeBreakoutRule}
