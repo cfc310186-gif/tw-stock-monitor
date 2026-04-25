@@ -25,6 +25,7 @@ monitor = "monitor.app:main"
 version = "monitor.testing_flow:show_version"
 stock_testing = "monitor.testing_flow:testing_stock_ordering"
 futures_testing = "monitor.testing_flow:testing_futures_ordering"
+indicators_demo = "monitor.demo:indicators_demo"
 
 [build-system]
 requires = ["setuptools>=68"]
