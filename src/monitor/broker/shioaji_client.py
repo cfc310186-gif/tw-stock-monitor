@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
+import pandas as pd
 import shioaji as sj
 from loguru import logger
+
+_TZ = "Asia/Taipei"
 
 
 @dataclass(frozen=True)
@@ -62,3 +66,44 @@ class ShioajiClient:
                 )
             )
         return rows
+
+    def kbars(
+        self,
+        symbol: str,
+        start: date | str,
+        end: date | str,
+    ) -> pd.DataFrame:
+        """Fetch 1-min K bars for a stock symbol.
+
+        Returns a DataFrame indexed by tz-aware timestamp (Asia/Taipei) with
+        columns: open, high, low, close, volume.
+        Rows outside 09:00–13:30 are excluded.
+        """
+        contract = self._api.Contracts.Stocks[symbol]
+        if contract is None:
+            raise ValueError(f"Unknown symbol: {symbol}")
+
+        raw = self._api.kbars(contract, start=str(start), end=str(end))
+        if not raw.ts:
+            return pd.DataFrame(
+                columns=["open", "high", "low", "close", "volume"]
+            )
+
+        ts = pd.to_datetime(raw.ts, unit="ns", utc=True).tz_convert(_TZ)
+        df = pd.DataFrame(
+            {
+                "open": raw.Open,
+                "high": raw.High,
+                "low": raw.Low,
+                "close": raw.Close,
+                "volume": raw.Volume,
+            },
+            index=ts,
+        )
+        df.index.name = "ts"
+        df = df.sort_index()
+
+        start_t = pd.Timestamp("09:00").time()
+        end_t = pd.Timestamp("13:30").time()
+        mask = (df.index.time >= start_t) & (df.index.time <= end_t)
+        return df[mask]
