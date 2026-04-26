@@ -7,12 +7,17 @@ from monitor.rules.base import Rule, Signal
 
 
 class BbReversalRule(Rule):
-    """Bollinger Band outer-bar reversal + candle colour flip.
+    """Bollinger Band outer-bar reversal + body-engulfing + volume surge.
 
-    Triggers when ALL three conditions hold on the last two bars:
+    All five conditions must hold on the last two bars:
       1. prev bar closed OUTSIDE the BB band (lower or upper side)
       2. current bar colour is opposite to prev bar (豬羊變色)
       3. current bar close is INSIDE the BB band
+      4. current bar's body engulfs prev's body — i.e. the reversal is
+         decisive enough that cur close passes through prev open
+           lower side (bullish): cur close > prev open
+           upper side (bearish): cur close < prev open
+      5. current bar's volume ≥ min_volume_ratio × prior 20-bar avg volume
     """
 
     def __init__(
@@ -23,6 +28,7 @@ class BbReversalRule(Rule):
         period: int = 20,
         stddev: float = 2.0,
         cooldown_minutes: int = 30,
+        min_volume_ratio: float = 1.5,
     ) -> None:
         if side not in ("lower", "upper"):
             raise ValueError(f"side must be 'lower' or 'upper', got {side!r}")
@@ -32,6 +38,7 @@ class BbReversalRule(Rule):
         self._period = period
         self._stddev = stddev
         self._cooldown = cooldown_minutes
+        self._min_volume_ratio = min_volume_ratio
 
     # -- Rule interface -------------------------------------------------------
 
@@ -60,6 +67,7 @@ class BbReversalRule(Rule):
             period=cfg.get("period", 20),
             stddev=cfg.get("stddev", 2.0),
             cooldown_minutes=cfg.get("cooldown_minutes", 30),
+            min_volume_ratio=cfg.get("min_volume_ratio", 1.5),
         )
 
     # -- Evaluation -----------------------------------------------------------
@@ -93,30 +101,45 @@ class BbReversalRule(Rule):
         if not (bb_cur["lower"] <= cur_bar["close"] <= bb_cur["upper"]):
             return None
 
-        return self._build_signal(symbol, bars, cur_bar, bb_cur, cur_green)
+        # 4. body-engulfing: cur close passes through prev open
+        if self._side == "lower":
+            if cur_bar["close"] <= prev_bar["open"]:
+                return None
+        else:
+            if cur_bar["close"] >= prev_bar["open"]:
+                return None
+
+        # 5. volume surge vs prior 20-bar average
+        vol_avg = bars["volume"].iloc[-21:-1].mean()
+        if not vol_avg or vol_avg <= 0:
+            return None
+        vol_ratio = float(cur_bar["volume"]) / float(vol_avg)
+        if vol_ratio < self._min_volume_ratio:
+            return None
+
+        return self._build_signal(symbol, bars, prev_bar, cur_bar, bb_cur,
+                                  cur_green, vol_ratio)
 
     def _build_signal(
         self,
         symbol: str,
         bars: pd.DataFrame,
+        prev_bar: pd.Series,
         cur_bar: pd.Series,
         bb_cur: pd.Series,
         cur_green: bool,
+        vol_ratio: float,
     ) -> Signal:
         bar_time = bars.index[-1]
         ts_str = bar_time.strftime("%H:%M") if hasattr(bar_time, "strftime") else str(bar_time)
         band_label = "下軌外" if self._side == "lower" else "上軌外"
         colour_label = "紅K" if cur_green else "黑K"
 
-        # Volume ratio vs recent 20-bar average
-        vol_avg = bars["volume"].iloc[-21:-1].mean()
-        vol_ratio = cur_bar["volume"] / vol_avg if vol_avg > 0 else 0.0
-
         message = (
             f"📈 {self._name} 觸發\n"
             f"{symbol} {self._timeframe} @ {ts_str}\n"
             f"收盤 {cur_bar['close']:.2f}\n"
-            f"布林{band_label}反轉回軌道內｜豬羊變色{colour_label}\n"
+            f"布林{band_label}反轉吞噬｜{colour_label}吃掉前根實體\n"
             f"量 {int(cur_bar['volume']):,} 張（量比 {vol_ratio:.1f}x）"
         )
         return Signal(
@@ -127,6 +150,7 @@ class BbReversalRule(Rule):
             message=message,
             details={
                 "close": float(cur_bar["close"]),
+                "prev_open": float(prev_bar["open"]),
                 "bb_upper": float(bb_cur["upper"]),
                 "bb_lower": float(bb_cur["lower"]),
                 "volume": int(cur_bar["volume"]),

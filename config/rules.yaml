@@ -7,6 +7,7 @@
   side: lower          # lower | upper
   period: 20
   stddev: 2
+  min_volume_ratio: 1.5  # cur volume must be ≥ 1.5× prior 20-bar avg
   cooldown_minutes: 30
 
 - name: bb_reversal_upper_5m
@@ -15,6 +16,7 @@
   side: upper
   period: 20
   stddev: 2
+  min_volume_ratio: 1.5
   cooldown_minutes: 30
 
 # Golden-cross / death-cross (M5)
@@ -42,6 +44,7 @@
   timeframe: 15m
   period: 20
   direction: up        # up = 突破前高, down = 跌破前低
+  min_volume_ratio: 1.5  # breakout must be confirmed by volume
   cooldown_minutes: 60
 
 - name: range_breakout_down_15m
@@ -49,4 +52,5 @@
   timeframe: 15m
   period: 20
   direction: down
+  min_volume_ratio: 1.5
   cooldown_minutes: 60
