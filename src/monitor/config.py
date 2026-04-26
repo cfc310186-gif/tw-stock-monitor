@@ -7,6 +7,8 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
+from monitor.instruments import InstrumentType
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -18,7 +20,18 @@ class Settings:
     shioaji_simulation: bool
     telegram_bot_token: str
     telegram_chat_id: str
-    symbols: list[str]
+    instruments: dict[str, InstrumentType]   # symbol → type
+
+    @property
+    def symbols(self) -> list[str]:
+        return list(self.instruments)
+
+    def symbols_of(self, t: InstrumentType) -> list[str]:
+        return [s for s, it in self.instruments.items() if it is t]
+
+    @property
+    def active_types(self) -> set[InstrumentType]:
+        return set(self.instruments.values())
 
 
 def _required(name: str) -> str:
@@ -33,24 +46,62 @@ def _optional(name: str) -> str | None:
     return value if value else None
 
 
-def load_watchlist(config_dir: Path | str = "config") -> list[str]:
-    """Load symbols from watchlist.yaml; also loads .env so callers can read
-    individual env vars without needing the full Shioaji/Telegram bundle."""
+# YAML key → InstrumentType mapping. Recognised aliases keep the config
+# tolerant to plural/legacy forms.
+_TYPE_KEYS: dict[str, InstrumentType] = {
+    "stocks": InstrumentType.STOCK,
+    "stock": InstrumentType.STOCK,
+    "domestic_futures": InstrumentType.DOMESTIC_FUTURES,
+    "futures": InstrumentType.DOMESTIC_FUTURES,
+    "overseas_futures": InstrumentType.OVERSEAS_FUTURES,
+}
+
+
+def load_instruments(config_dir: Path | str = "config") -> dict[str, InstrumentType]:
+    """Parse watchlist.yaml into a {symbol: InstrumentType} mapping.
+
+    Also loads `.env` so callers that only need symbols (e.g. backtest --mock)
+    don't have to repeat that work.
+    """
     config_dir = Path(config_dir)
     env_path = config_dir / ".env"
     if env_path.exists():
         load_dotenv(env_path)
 
     watchlist_path = config_dir / "watchlist.yaml"
-    watchlist = yaml.safe_load(watchlist_path.read_text(encoding="utf-8"))
-    symbols = [str(s) for s in watchlist.get("symbols", [])]
-    if not symbols:
+    raw = yaml.safe_load(watchlist_path.read_text(encoding="utf-8")) or {}
+
+    instruments: dict[str, InstrumentType] = {}
+
+    # Legacy flat-list form: { symbols: [...] } — assumed all stocks for
+    # backwards compatibility with watchlists predating the type split.
+    if "symbols" in raw:
+        for sym in raw["symbols"] or []:
+            instruments[str(sym)] = InstrumentType.STOCK
+
+    # New grouped form: { stocks: [...], domestic_futures: [...], ... }
+    for key, items in raw.items():
+        if key == "symbols":
+            continue
+        if key not in _TYPE_KEYS:
+            continue
+        t = _TYPE_KEYS[key]
+        for sym in items or []:
+            instruments[str(sym)] = t
+
+    if not instruments:
         raise RuntimeError(f"No symbols found in {watchlist_path}")
-    return symbols
+    return instruments
+
+
+# Back-compat alias: returns just the symbol list (loses type info; prefer
+# load_instruments() for any code that needs to route by instrument type).
+def load_watchlist(config_dir: Path | str = "config") -> list[str]:
+    return list(load_instruments(config_dir))
 
 
 def load_settings(config_dir: Path | str = "config") -> Settings:
-    symbols = load_watchlist(config_dir)
+    instruments = load_instruments(config_dir)
     return Settings(
         shioaji_api_key=_required("SHIOAJI_API_KEY"),
         shioaji_secret_key=_required("SHIOAJI_SECRET_KEY"),
@@ -60,5 +111,5 @@ def load_settings(config_dir: Path | str = "config") -> Settings:
         shioaji_simulation=os.environ.get("SHIOAJI_SIMULATION", "false").lower() == "true",
         telegram_bot_token=_required("TELEGRAM_BOT_TOKEN"),
         telegram_chat_id=_required("TELEGRAM_CHAT_ID"),
-        symbols=symbols,
+        instruments=instruments,
     )

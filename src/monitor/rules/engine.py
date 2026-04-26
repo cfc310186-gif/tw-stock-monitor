@@ -7,6 +7,7 @@ import pandas as pd
 import yaml
 from loguru import logger
 
+from monitor.instruments import InstrumentType
 from monitor.rules.base import Rule, Signal
 from monitor.rules.bb_reversal import BbReversalRule
 from monitor.rules.ma_cross_reversal import MaCrossReversalRule
@@ -66,14 +67,22 @@ class RuleEngine:
         timeframe: str,
         bars: pd.DataFrame,
         now: datetime | None = None,
+        itype: InstrumentType | None = None,
     ) -> list[Signal]:
-        """Evaluate all matching rules and return un-throttled signals."""
+        """Evaluate all matching rules and return un-throttled signals.
+
+        `itype` filters rules via Rule.applies_to so per-type configs can
+        coexist (e.g. a stock-only bb_reversal with min_volume_ratio=1.5
+        alongside a futures bb_reversal with min_volume_ratio=1.2).
+        """
         if now is None:
             now = datetime.now()
 
         signals: list[Signal] = []
         for rule in self._rules:
             if rule.timeframe != timeframe:
+                continue
+            if itype is not None and itype not in rule.applies_to:
                 continue
 
             sig = rule.evaluate(symbol, bars)
@@ -110,17 +119,21 @@ class RuleEngine:
         symbol: str,
         timeframe: str,
         all_bars: pd.DataFrame,
+        itype: InstrumentType | None = None,
     ) -> list[Signal]:
         """Walk through every bar in all_bars and collect all signals.
 
         Useful for historical back-test / smoke-test without cooldown.
-        Cooldown is disabled to surface every trigger point.
+        Cooldown is disabled to surface every trigger point. `itype` (if
+        provided) applies the same applies_to filter as evaluate().
         """
         signals: list[Signal] = []
         for i in range(1, len(all_bars) + 1):
             window = all_bars.iloc[:i]
             for rule in self._rules:
                 if rule.timeframe != timeframe:
+                    continue
+                if itype is not None and itype not in rule.applies_to:
                     continue
                 sig = rule.evaluate(symbol, window)
                 if sig is None:

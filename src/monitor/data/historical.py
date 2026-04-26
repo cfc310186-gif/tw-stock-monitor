@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 import pandas as pd
 from loguru import logger
 
+from monitor.instruments import InstrumentType
+
 if TYPE_CHECKING:
     from monitor.broker.shioaji_client import ShioajiClient
 
@@ -42,22 +44,30 @@ def resample_bars(df_1m: pd.DataFrame, rule: str) -> pd.DataFrame:
 
 def load_history(
     client: "ShioajiClient",
-    symbols: list[str],
+    instruments: dict[str, InstrumentType] | list[str],
     lookback_days: int = 60,
 ) -> dict[str, dict[str, pd.DataFrame]]:
     """Bootstrap historical K bars for all symbols and timeframes.
 
-    Returns ``{symbol: {timeframe: DataFrame}}``.
-    Missing or empty symbols are skipped with a warning.
+    `instruments` is preferably a {symbol: InstrumentType} mapping. Passing
+    a plain list of symbols is also accepted (treated as all stocks) for
+    backwards compatibility with older callers / tests.
     """
+    if isinstance(instruments, list):
+        instruments = {s: InstrumentType.STOCK for s in instruments}
+
     end = date.today()
     start = end - timedelta(days=lookback_days)
     result: dict[str, dict[str, pd.DataFrame]] = {}
 
-    for sym in symbols:
-        logger.info("Loading history for {} ({} → {})", sym, start, end)
+    for sym, itype in instruments.items():
+        logger.info("Loading history for {} [{}] ({} → {})",
+                    sym, itype.value, start, end)
         try:
-            df_1m = client.kbars(sym, start=start, end=end)
+            df_1m = client.kbars(sym, itype, start=start, end=end)
+        except NotImplementedError as exc:
+            logger.warning("Skipping {}: {}", sym, exc)
+            continue
         except Exception as exc:
             logger.warning("kbars failed for {}: {}", sym, exc)
             continue

@@ -7,19 +7,9 @@ import pandas as pd
 import shioaji as sj
 from loguru import logger
 
+from monitor.instruments import InstrumentType, kbar_windows
+
 _TZ = "Asia/Taipei"
-
-# Trading-hour windows for kbar filtering (Asia/Taipei).
-# Stocks: regular session 09:00-13:30
-# Futures (TXF/MXF/EXF): day session 08:45-13:45
-_STOCK_HOURS = (pd.Timestamp("09:00").time(), pd.Timestamp("13:30").time())
-_FUTURES_DAY_HOURS = (pd.Timestamp("08:45").time(), pd.Timestamp("13:45").time())
-
-
-def is_futures_symbol(symbol: str) -> bool:
-    """Stocks/ETFs are all-digit (e.g. '2330', '0050'); futures contain
-    letters (e.g. 'MXFR1' for 小台連續近月, 'TXF202506')."""
-    return not symbol.isdigit()
 
 
 @dataclass(frozen=True)
@@ -50,31 +40,47 @@ class ShioajiClient:
         except Exception as exc:
             logger.warning("Shioaji logout failed: {}", exc)
 
-    def _resolve_contract(self, symbol: str):
-        """Look up a stock or futures contract by symbol.
+    # ------------------------------------------------------------------
+    # Contract resolution
+    # ------------------------------------------------------------------
 
-        Stocks: numeric code (e.g. '2330').
-        Futures: any symbol containing letters (e.g. 'MXFR1' for 小台連續近月).
-        """
-        if is_futures_symbol(symbol):
+    def _resolve_contract(self, symbol: str, itype: InstrumentType):
+        if itype is InstrumentType.STOCK:
+            return self._api.Contracts.Stocks[symbol]
+        if itype is InstrumentType.DOMESTIC_FUTURES:
             return self._api.Contracts.Futures[symbol]
-        return self._api.Contracts.Stocks[symbol]
+        if itype is InstrumentType.OVERSEAS_FUTURES:
+            raise NotImplementedError(
+                f"Overseas futures '{symbol}' is not supported by Shioaji's "
+                "domestic API. Wire in a separate broker/data source for "
+                "海外期貨 before adding it to the watchlist."
+            )
+        raise ValueError(f"Unknown instrument type: {itype}")
 
-    def snapshots(self, symbols: list[str]) -> list[SnapshotRow]:
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def snapshots(self, instruments: dict[str, InstrumentType]) -> list[SnapshotRow]:
+        """Fetch snapshot quotes for a {symbol: InstrumentType} mapping.
+
+        Overseas-futures symbols are skipped with a warning (broker stub).
+        """
         contracts = []
-        # Map contract.code → original user-supplied symbol so SnapshotRow.code
-        # mirrors what the watchlist used (e.g. 'MXFR1') even if the broker
-        # resolves the rolling alias to an underlying month-specific code.
-        user_by_contract_code: dict[str, str] = {}
-        name_by_user_sym: dict[str, str] = {}
-        for sym in symbols:
-            contract = self._resolve_contract(sym)
+        user_by_code: dict[str, str] = {}     # contract.code → user-supplied symbol
+        name_by_user: dict[str, str] = {}
+        for sym, itype in instruments.items():
+            try:
+                contract = self._resolve_contract(sym, itype)
+            except NotImplementedError as exc:
+                logger.warning(str(exc))
+                continue
             if contract is None:
-                logger.warning("Unknown symbol, skipped: {}", sym)
+                logger.warning("Unknown {} symbol, skipped: {}", itype.value, sym)
                 continue
             contracts.append(contract)
-            user_by_contract_code[contract.code] = sym
-            name_by_user_sym[sym] = contract.name
+            user_by_code[contract.code] = sym
+            name_by_user[sym] = contract.name
 
         if not contracts:
             return []
@@ -82,11 +88,11 @@ class ShioajiClient:
         raw = self._api.snapshots(contracts)
         rows: list[SnapshotRow] = []
         for s in raw:
-            user_sym = user_by_contract_code.get(s.code, s.code)
+            user_sym = user_by_code.get(s.code, s.code)
             rows.append(
                 SnapshotRow(
                     code=user_sym,
-                    name=name_by_user_sym.get(user_sym, ""),
+                    name=name_by_user.get(user_sym, ""),
                     close=float(s.close),
                     change_price=float(s.change_price),
                     change_rate=float(s.change_rate),
@@ -98,19 +104,19 @@ class ShioajiClient:
     def kbars(
         self,
         symbol: str,
+        itype: InstrumentType,
         start: date | str,
         end: date | str,
     ) -> pd.DataFrame:
-        """Fetch 1-min K bars for a stock or futures symbol.
+        """Fetch 1-min K bars and filter to the type-specific session window(s).
 
-        Returns a DataFrame indexed by tz-aware timestamp (Asia/Taipei) with
-        columns: open, high, low, close, volume. Rows outside the symbol's
-        regular trading window are excluded (stocks: 09:00-13:30; futures
-        day session: 08:45-13:45).
+        Stocks → 09:00-13:30
+        Domestic futures → day 08:45-13:45 + night 15:00-05:00
+        Overseas futures → raises NotImplementedError (broker stub)
         """
-        contract = self._resolve_contract(symbol)
+        contract = self._resolve_contract(symbol, itype)
         if contract is None:
-            raise ValueError(f"Unknown symbol: {symbol}")
+            raise ValueError(f"Unknown {itype.value} symbol: {symbol}")
 
         raw = self._api.kbars(contract, start=str(start), end=str(end))
         if not raw.ts:
@@ -132,6 +138,15 @@ class ShioajiClient:
         df.index.name = "ts"
         df = df.sort_index()
 
-        start_t, end_t = _FUTURES_DAY_HOURS if is_futures_symbol(symbol) else _STOCK_HOURS
-        mask = (df.index.time >= start_t) & (df.index.time <= end_t)
+        # Union of every session window for this instrument type. For
+        # crossing-midnight windows (futures night session), SessionWindow
+        # already handles the wrap.
+        windows = kbar_windows(itype)
+        mask = pd.Series(False, index=df.index)
+        for w in windows:
+            ts_time = df.index.time
+            if w.start <= w.end:
+                mask = mask | ((ts_time >= w.start) & (ts_time <= w.end))
+            else:
+                mask = mask | ((ts_time >= w.start) | (ts_time <= w.end))
         return df[mask]

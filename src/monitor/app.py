@@ -40,8 +40,10 @@ def _db_path() -> Path:
 # ---------------------------------------------------------------------------
 
 def _bootstrap(client: ShioajiClient, settings) -> BarBuilder:
-    logger.info("Bootstrapping {} symbols…", len(settings.symbols))
-    hist = load_history(client, settings.symbols, lookback_days=60)
+    logger.info("Bootstrapping {} symbols across {} type(s)…",
+                len(settings.symbols),
+                len(settings.active_types))
+    hist = load_history(client, settings.instruments, lookback_days=60)
     if not hist:
         raise RuntimeError("No historical data loaded (simulation outside trading hours?)")
     logger.info("Bootstrap done: {} symbols", len(hist))
@@ -62,12 +64,22 @@ def _restore_engine(engine: RuleEngine, store: SignalStore) -> None:
 
 async def _poll_once(client, builder, engine, store, notifier, settings) -> None:
     now = datetime.now(_TZ)
-    rows = client.snapshots(settings.symbols)
+    # Only poll symbols whose session is open right now — overseas futures
+    # at 3am Taipei should still poll, stocks shouldn't.
+    active = {
+        sym: itype
+        for sym, itype in settings.instruments.items()
+        if scheduler.is_in_session(itype, now)
+    }
+    if not active:
+        return
+    rows = client.snapshots(active)
     for row in rows:
+        itype = settings.instruments.get(row.code)
         closed_tfs = builder.on_snapshot(row.code, row.close, row.total_volume, now)
         for tf in closed_tfs:
             bars = builder.get_bars(row.code, tf)
-            signals = engine.evaluate(row.code, tf, bars, now=now)
+            signals = engine.evaluate(row.code, tf, bars, now=now, itype=itype)
             for sig in signals:
                 logger.info("🔔 {} {} {}", sig.symbol, sig.rule_name, sig.timeframe)
                 if store.save(sig, triggered_at=now):
@@ -78,10 +90,13 @@ async def _run_market_session(
     client, builder, engine, store, notifier, settings,
     stop_event: asyncio.Event,
 ) -> None:
-    logger.info("Market open — polling every {}s", _POLL_INTERVAL)
+    logger.info("Market open — polling every {}s for {}",
+                _POLL_INTERVAL,
+                ", ".join(t.value for t in settings.active_types))
     errors = 0
+    types = settings.active_types
 
-    while scheduler.is_market_open() and not stop_event.is_set():
+    while scheduler.any_in_session(types) and not stop_event.is_set():
         try:
             await _poll_once(client, builder, engine, store, notifier, settings)
             errors = 0
@@ -92,13 +107,12 @@ async def _run_market_session(
             await _sleep_or_stop(delay, stop_event)
             continue
 
-        remaining = scheduler.seconds_until_close()
-        await _sleep_or_stop(min(_POLL_INTERVAL, remaining + 1), stop_event)
+        await _sleep_or_stop(_POLL_INTERVAL, stop_event)
 
     if stop_event.is_set():
         logger.info("Stop signal received — exiting market loop")
     else:
-        logger.info("Market closed at {}", datetime.now(_TZ).strftime("%H:%M"))
+        logger.info("All sessions closed at {}", datetime.now(_TZ).strftime("%H:%M"))
 
 
 async def _sleep_or_stop(seconds: float, stop_event: asyncio.Event) -> None:
@@ -130,14 +144,15 @@ async def _run() -> int:
         except (NotImplementedError, AttributeError):
             pass  # Windows lacks add_signal_handler for SIGTERM
 
-    if not scheduler.is_trading_day():
-        logger.info("Not a trading day — exiting")
+    types = settings.active_types
+    wait = scheduler.seconds_until_next_open(types)
+    if wait == float("inf"):
+        logger.info("No upcoming session for active types ({}) — exiting",
+                    ", ".join(t.value for t in types))
         store.close()
         return 0
-
-    wait = scheduler.seconds_until_open()
     if wait > 0:
-        logger.info("Market opens in {:.0f} min — waiting…", wait / 60)
+        logger.info("Next session opens in {:.0f} min — waiting…", wait / 60)
         await _sleep_or_stop(wait, stop_event)
         if stop_event.is_set():
             logger.info("Stop signal received during pre-open wait — exiting")
@@ -153,9 +168,13 @@ async def _run() -> int:
     try:
         builder = _bootstrap(client, settings)
         _restore_engine(engine, store)
+        type_summary = ", ".join(
+            f"{t.value}×{len(settings.symbols_of(t))}"
+            for t in settings.active_types
+        )
         await notifier.send(
             f"✅ monitor 啟動\n"
-            f"監測 {len(settings.symbols)} 檔\n"
+            f"監測 {len(settings.symbols)} 檔（{type_summary}）\n"
             f"規則: {[r.name for r in engine._rules]}"
         )
         await _run_market_session(

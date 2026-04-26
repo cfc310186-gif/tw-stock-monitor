@@ -17,6 +17,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from monitor.instruments import InstrumentType
 from monitor.rules.base import Rule, Signal
 from monitor.rules.engine import RuleEngine
 
@@ -132,14 +133,27 @@ def _compute_outcome(
     )
 
 
+def _normalise_instruments(
+    arg: Iterable[str] | dict[str, InstrumentType],
+) -> dict[str, InstrumentType]:
+    if isinstance(arg, dict):
+        return dict(arg)
+    return {s: InstrumentType.STOCK for s in arg}
+
+
 def backtest_rule(
     rule: Rule,
-    symbols: Iterable[str],
+    instruments: Iterable[str] | dict[str, InstrumentType],
     history: dict,
     horizon: int = 5,
     hit_threshold_pct: float = 0.5,
 ) -> BacktestResult:
-    """Run one rule against `history` and return aggregated stats."""
+    """Run one rule against `history` and return aggregated stats.
+
+    `instruments` may be a list of symbols (assumed all stocks) or a
+    {symbol: InstrumentType} mapping; the latter lets the rule's
+    applies_to filter skip non-matching symbols.
+    """
     direction = _infer_direction(rule)
     result = BacktestResult(
         rule_name=rule.name,
@@ -149,13 +163,17 @@ def backtest_rule(
         hit_threshold_pct=hit_threshold_pct,
     )
 
-    for sym in symbols:
+    inst_map = _normalise_instruments(instruments)
+    for sym, itype in inst_map.items():
+        if itype not in rule.applies_to:
+            continue
+
         bars = history.get(sym, {}).get(rule.timeframe)
         if bars is None or bars.empty:
             continue
 
         engine = RuleEngine([rule])  # fresh per-symbol so dedup state resets
-        signals = engine.replay(sym, rule.timeframe, bars)
+        signals = engine.replay(sym, rule.timeframe, bars, itype=itype)
         if not signals:
             continue
 
@@ -175,7 +193,7 @@ def backtest_rule(
 
 def backtest_yaml(
     yaml_path: Path | str,
-    symbols: Iterable[str],
+    instruments: Iterable[str] | dict[str, InstrumentType],
     history: dict,
     horizon: int = 5,
     hit_threshold_pct: float = 0.5,
@@ -187,7 +205,8 @@ def backtest_yaml(
     live in production — the whole point is to compare candidates.
     """
     engine = RuleEngine.from_yaml(yaml_path, include_disabled=include_disabled)
+    inst_map = _normalise_instruments(instruments)
     return [
-        backtest_rule(rule, list(symbols), history, horizon, hit_threshold_pct)
+        backtest_rule(rule, inst_map, history, horizon, hit_threshold_pct)
         for rule in engine._rules
     ]

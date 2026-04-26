@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from monitor.rules.base import Rule, Signal
+from monitor.instruments import InstrumentType
+from monitor.rules.base import Rule, Signal, parse_applies_to
 
 
 class RangeBreakoutRule(Rule):
@@ -27,6 +28,7 @@ class RangeBreakoutRule(Rule):
         direction: str = "up",
         cooldown_minutes: int = 30,
         min_volume_ratio: float = 1.5,
+        applies_to: set[InstrumentType] | None = None,
     ) -> None:
         if direction not in ("up", "down"):
             raise ValueError(f"direction must be 'up' or 'down', got {direction!r}")
@@ -38,6 +40,7 @@ class RangeBreakoutRule(Rule):
         self._direction = direction
         self._cooldown = cooldown_minutes
         self._min_volume_ratio = min_volume_ratio
+        self._applies_to = applies_to or set(InstrumentType)
 
     # -- Rule interface -------------------------------------------------------
 
@@ -57,6 +60,10 @@ class RangeBreakoutRule(Rule):
     def expected_direction(self) -> str:
         return "long" if self._direction == "up" else "short"
 
+    @property
+    def applies_to(self) -> set[InstrumentType]:
+        return self._applies_to
+
     @classmethod
     def from_config(cls, cfg: dict) -> "RangeBreakoutRule":
         return cls(
@@ -66,6 +73,7 @@ class RangeBreakoutRule(Rule):
             direction=cfg.get("direction", "up"),
             cooldown_minutes=cfg.get("cooldown_minutes", 30),
             min_volume_ratio=cfg.get("min_volume_ratio", 1.5),
+            applies_to=parse_applies_to(cfg),
         )
 
     # -- Evaluation -----------------------------------------------------------

@@ -15,7 +15,7 @@ from loguru import logger
 
 from monitor.backtest.engine import backtest_yaml
 from monitor.broker.shioaji_client import ShioajiClient
-from monitor.config import load_settings, load_watchlist
+from monitor.config import load_instruments, load_settings
 from monitor.data.historical import load_history
 from monitor.data.mock import make_mock_history
 
@@ -60,13 +60,13 @@ def main(argv: list[str] | None = None) -> int:
     logger.add(sys.stderr, level="INFO")
 
     if args.mock:
-        symbols = load_watchlist()
+        instruments = load_instruments()
         logger.info("Mock mode: synthetic {}-day history for {} symbols",
-                    args.days, len(symbols))
-        history = make_mock_history(symbols, n_days=args.days)
+                    args.days, len(instruments))
+        history = make_mock_history(instruments, n_days=args.days)
     else:
         settings = load_settings()
-        symbols = settings.symbols
+        instruments = settings.instruments
         client = ShioajiClient(
             api_key=settings.shioaji_api_key,
             secret_key=settings.shioaji_secret_key,
@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         client.login()
         try:
-            history = load_history(client, symbols, lookback_days=args.days)
+            history = load_history(client, instruments, lookback_days=args.days)
         finally:
             client.logout()
 
@@ -84,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
 
     results = backtest_yaml(
         args.rules,
-        symbols,
+        instruments,
         history,
         horizon=args.horizon,
         hit_threshold_pct=args.threshold,

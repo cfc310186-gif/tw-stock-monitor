@@ -20,15 +20,23 @@ _DAILY_VOLATILITY = 0.015    # ±1.5 % intraday sigma
 
 
 def make_mock_history(
-    symbols: list[str],
+    instruments,
     n_days: int = 30,
     seed: int = 42,
 ) -> dict[str, dict[str, pd.DataFrame]]:
     """Generate synthetic 1-min OHLCV bars and resample to all timeframes.
 
-    Prices follow a geometric random walk within each day, reset each
-    morning to a fresh starting point close to the previous close.
+    `instruments` may be a list of symbols (kept for backwards compat) or
+    a {symbol: InstrumentType} mapping. The mock walk doesn't model
+    type-specific session hours yet — it just produces 1-min bars during
+    a stock-style 09:01–13:30 day, which is fine for indicator/replay
+    smoke tests.
     """
+    if isinstance(instruments, dict):
+        symbols = list(instruments)
+    else:
+        symbols = list(instruments)
+
     rng = np.random.default_rng(seed)
     result: dict[str, dict[str, pd.DataFrame]] = {}
 

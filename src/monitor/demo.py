@@ -116,7 +116,7 @@ async def _run(mock: bool = False) -> int:
 
     if mock:
         logger.info("Mock mode: synthetic 30-day history (no Shioaji login)")
-        hist = make_mock_history(settings.symbols, n_days=30)
+        hist = make_mock_history(settings.instruments, n_days=30)
     else:
         client = ShioajiClient(
             api_key=settings.shioaji_api_key,
@@ -125,7 +125,7 @@ async def _run(mock: bool = False) -> int:
         )
         client.login()
         try:
-            hist = load_history(client, settings.symbols, lookback_days=60)
+            hist = load_history(client, settings.instruments, lookback_days=60)
         finally:
             client.logout()
 

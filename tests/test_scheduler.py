@@ -67,3 +67,75 @@ def test_seconds_until_close_positive():
 def test_seconds_until_close_zero_after_close():
     dt = _dt(0, 14, 0)
     assert scheduler.seconds_until_close(dt) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Per-instrument-type session checks
+# ---------------------------------------------------------------------------
+
+from monitor.instruments import InstrumentType
+
+
+def test_stock_in_session_only_during_stock_hours():
+    assert scheduler.is_in_session(InstrumentType.STOCK, _dt(0, 10, 0)) is True
+    assert scheduler.is_in_session(InstrumentType.STOCK, _dt(0, 8, 50)) is False
+    assert scheduler.is_in_session(InstrumentType.STOCK, _dt(0, 14, 0)) is False
+    assert scheduler.is_in_session(InstrumentType.STOCK, _dt(5, 10, 0)) is False
+
+
+def test_domestic_futures_day_session():
+    # Mon 09:00 — both stocks AND futures are open
+    assert scheduler.is_in_session(InstrumentType.DOMESTIC_FUTURES, _dt(0, 9, 0)) is True
+    # Mon 08:50 — stock closed, futures day session open
+    assert scheduler.is_in_session(InstrumentType.DOMESTIC_FUTURES, _dt(0, 8, 50)) is True
+    # Mon 13:40 — stock closed, futures still open until 13:44
+    assert scheduler.is_in_session(InstrumentType.DOMESTIC_FUTURES, _dt(0, 13, 40)) is True
+
+
+def test_domestic_futures_night_session():
+    # Mon 20:00 — night session active
+    assert scheduler.is_in_session(InstrumentType.DOMESTIC_FUTURES, _dt(0, 20, 0)) is True
+    # Tue 03:00 — still in Monday's night session (crosses midnight)
+    assert scheduler.is_in_session(InstrumentType.DOMESTIC_FUTURES, _dt(1, 3, 0)) is True
+    # Tue 06:00 — night session ended at 05:00, day session starts at 08:46
+    assert scheduler.is_in_session(InstrumentType.DOMESTIC_FUTURES, _dt(1, 6, 0)) is False
+
+
+def test_overseas_futures_continuous_weekday():
+    # Mon 12:00 — open
+    assert scheduler.is_in_session(InstrumentType.OVERSEAS_FUTURES, _dt(0, 12, 0)) is True
+    # Mon 22:00 — open
+    assert scheduler.is_in_session(InstrumentType.OVERSEAS_FUTURES, _dt(0, 22, 0)) is True
+    # Tue 03:00 — open
+    assert scheduler.is_in_session(InstrumentType.OVERSEAS_FUTURES, _dt(1, 3, 0)) is True
+    # Daily 05:00-06:00 maintenance break
+    assert scheduler.is_in_session(InstrumentType.OVERSEAS_FUTURES, _dt(1, 5, 30)) is False
+
+
+def test_overseas_futures_weekend_closure():
+    # Sat 04:00 — still in Friday's roll, OK
+    assert scheduler.is_in_session(InstrumentType.OVERSEAS_FUTURES, _dt(5, 4, 0)) is True
+    # Sat 12:00 — closed for the weekend
+    assert scheduler.is_in_session(InstrumentType.OVERSEAS_FUTURES, _dt(5, 12, 0)) is False
+    # Sun 22:00 — still closed (CME-Globex like markets reopen Mon ~06:00 Taipei)
+    assert scheduler.is_in_session(InstrumentType.OVERSEAS_FUTURES, _dt(6, 22, 0)) is False
+
+
+def test_any_in_session_unions_types():
+    types = [InstrumentType.STOCK, InstrumentType.DOMESTIC_FUTURES]
+    # Mon 08:50 — stock closed, dfut open → union = open
+    assert scheduler.any_in_session(types, _dt(0, 8, 50)) is True
+    # Mon 14:00 — both closed
+    assert scheduler.any_in_session(types, _dt(0, 14, 0)) is False
+
+
+def test_seconds_until_next_open_returns_zero_when_active():
+    types = [InstrumentType.STOCK]
+    assert scheduler.seconds_until_next_open(types, _dt(0, 10, 0)) == 0.0
+
+
+def test_seconds_until_next_open_finds_next_window():
+    types = [InstrumentType.STOCK]
+    # Mon 08:00 → 61 min until stock 09:01
+    secs = scheduler.seconds_until_next_open(types, _dt(0, 8, 0))
+    assert 60 * 60 <= secs <= 62 * 60

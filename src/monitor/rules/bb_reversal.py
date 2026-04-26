@@ -3,7 +3,8 @@ from __future__ import annotations
 import pandas as pd
 
 from monitor.indicators.bbands import bbands
-from monitor.rules.base import Rule, Signal
+from monitor.instruments import InstrumentType
+from monitor.rules.base import Rule, Signal, parse_applies_to
 
 
 class BbReversalRule(Rule):
@@ -29,6 +30,7 @@ class BbReversalRule(Rule):
         stddev: float = 2.0,
         cooldown_minutes: int = 30,
         min_volume_ratio: float = 1.5,
+        applies_to: set[InstrumentType] | None = None,
     ) -> None:
         if side not in ("lower", "upper"):
             raise ValueError(f"side must be 'lower' or 'upper', got {side!r}")
@@ -39,6 +41,7 @@ class BbReversalRule(Rule):
         self._stddev = stddev
         self._cooldown = cooldown_minutes
         self._min_volume_ratio = min_volume_ratio
+        self._applies_to = applies_to or set(InstrumentType)
 
     # -- Rule interface -------------------------------------------------------
 
@@ -58,6 +61,10 @@ class BbReversalRule(Rule):
     def expected_direction(self) -> str:
         return "long" if self._side == "lower" else "short"
 
+    @property
+    def applies_to(self) -> set[InstrumentType]:
+        return self._applies_to
+
     @classmethod
     def from_config(cls, cfg: dict) -> "BbReversalRule":
         return cls(
@@ -68,6 +75,7 @@ class BbReversalRule(Rule):
             stddev=cfg.get("stddev", 2.0),
             cooldown_minutes=cfg.get("cooldown_minutes", 30),
             min_volume_ratio=cfg.get("min_volume_ratio", 1.5),
+            applies_to=parse_applies_to(cfg),
         )
 
     # -- Evaluation -----------------------------------------------------------

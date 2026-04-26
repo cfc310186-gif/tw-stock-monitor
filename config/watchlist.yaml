@@ -1,11 +1,27 @@
-symbols:
-  - "2330"     # 台積電
-  - "2317"     # 鴻海
-  - "2454"     # 聯發科
-  - "0050"     # 元大台灣50 ETF
-  - "2603"     # 長榮
-  # Futures (期貨) — symbol must contain letters; broker auto-routes to
-  # Contracts.Futures. R1 = 連續近月 (auto-rolls); a specific month would
-  # be e.g. MXF202506.
-  # - "MXFR1"  # 小台連續近月
-  # - "TXFR1"  # 大台連續近月
+# Watchlist groups the symbols by instrument type. The type drives:
+#   • which Shioaji contract namespace to look up
+#   • which trading-session window the scheduler/kbar filter applies
+#   • which rules can fire on the symbol (rules can declare applies_to)
+#
+# Use the explicit type — symbol shape alone is unreliable (TW active ETFs,
+# warrants, ETN can mix letters and digits).
+
+stocks:
+  - "2330"        # 台積電
+  - "2317"        # 鴻海
+  - "2454"        # 聯發科
+  - "0050"        # 元大台灣50 ETF
+  - "2603"        # 長榮
+  # 主動式 ETF / 權證 / ETN 也走 stocks (TWSE/TPEx 同個 namespace):
+  # - "00940"
+  # - "081234"
+
+domestic_futures:
+  # TAIFEX 期貨。R1 = 連續近月 (auto-roll), R2 = 連續次月，特定月份用 8 碼 e.g. MXF202506。
+  # - "MXFR1"     # 小台連續近月
+  # - "TXFR1"     # 大台連續近月
+
+overseas_futures:
+  # 海外期貨，broker layer 目前 stub — 接 CME/CBOT/Eurex 等資料源後啟用。
+  # - "NQ"        # Nasdaq E-mini (CME)
+  # - "ES"        # S&P 500 E-mini (CME)
