@@ -22,6 +22,11 @@ domestic_futures:
   # - "TXFR1"     # 大台連續近月
 
 overseas_futures:
-  # 海外期貨，broker layer 目前 stub — 接 CME/CBOT/Eurex 等資料源後啟用。
-  # - "NQ"        # Nasdaq E-mini (CME)
-  # - "ES"        # S&P 500 E-mini (CME)
+  # 透過 IBClient 取得 (需先 pip install -e ".[ib]" 並啟動 IB Gateway/TWS)。
+  # 預設帶 IB exchange 路由：MNQ→CME / MCL→NYMEX / MGC→COMEX / SIL→COMEX。
+  # 用 "SYMBOL@EXCHANGE" 可手動指定，例: "NQ@CME"。
+  # 連續近月：bare symbol 即可，IBClient 自動找最近月並在到期前換月。
+  # - "MNQ"       # 小那 Micro E-mini Nasdaq-100
+  # - "MCL"       # 小輕原油 Micro WTI Crude
+  # - "MGC"       # 小金 Micro Gold
+  # - "SIL"       # 小白銀 Silver MINI 1000 oz

@@ -21,6 +21,11 @@ class Settings:
     telegram_bot_token: str
     telegram_chat_id: str
     instruments: dict[str, InstrumentType]   # symbol → type
+    # IB Gateway / TWS — only required when watchlist contains overseas_futures
+    ib_host: str
+    ib_port: int
+    ib_client_id: int
+    ib_readonly: bool
 
     @property
     def symbols(self) -> list[str]:
@@ -112,4 +117,8 @@ def load_settings(config_dir: Path | str = "config") -> Settings:
         telegram_bot_token=_required("TELEGRAM_BOT_TOKEN"),
         telegram_chat_id=_required("TELEGRAM_CHAT_ID"),
         instruments=instruments,
+        ib_host=os.environ.get("IB_HOST", "127.0.0.1"),
+        ib_port=int(os.environ.get("IB_PORT", "4002")),       # 4002=Paper Gateway, 4001=Live
+        ib_client_id=int(os.environ.get("IB_CLIENT_ID", "1")),
+        ib_readonly=os.environ.get("IB_READONLY", "true").lower() == "true",
     )

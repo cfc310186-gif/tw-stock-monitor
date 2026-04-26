@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from loguru import logger
 
 from monitor import scheduler
-from monitor.broker.shioaji_client import ShioajiClient
+from monitor.broker.factory import build_client
 from monitor.config import load_settings
 from monitor.data.bar_builder import BarBuilder
 from monitor.data.historical import load_history
@@ -39,7 +39,7 @@ def _db_path() -> Path:
 # Bootstrap
 # ---------------------------------------------------------------------------
 
-def _bootstrap(client: ShioajiClient, settings) -> BarBuilder:
+def _bootstrap(client, settings) -> BarBuilder:
     logger.info("Bootstrapping {} symbols across {} type(s)…",
                 len(settings.symbols),
                 len(settings.active_types))
@@ -159,11 +159,7 @@ async def _run() -> int:
             store.close()
             return 0
 
-    client = ShioajiClient(
-        api_key=settings.shioaji_api_key,
-        secret_key=settings.shioaji_secret_key,
-        simulation=settings.shioaji_simulation,
-    )
+    client = build_client(settings)
     client.login()
     try:
         builder = _bootstrap(client, settings)

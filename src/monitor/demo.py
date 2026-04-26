@@ -6,7 +6,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from monitor.broker.shioaji_client import ShioajiClient
+from monitor.broker.factory import build_client
 from monitor.config import load_settings
 from monitor.data.bar_builder import BarBuilder
 from monitor.data.historical import load_history
@@ -118,11 +118,7 @@ async def _run(mock: bool = False) -> int:
         logger.info("Mock mode: synthetic 30-day history (no Shioaji login)")
         hist = make_mock_history(settings.instruments, n_days=30)
     else:
-        client = ShioajiClient(
-            api_key=settings.shioaji_api_key,
-            secret_key=settings.shioaji_secret_key,
-            simulation=settings.shioaji_simulation,
-        )
+        client = build_client(settings)
         client.login()
         try:
             hist = load_history(client, settings.instruments, lookback_days=60)

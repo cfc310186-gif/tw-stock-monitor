@@ -14,7 +14,7 @@ from pathlib import Path
 from loguru import logger
 
 from monitor.backtest.engine import backtest_yaml
-from monitor.broker.shioaji_client import ShioajiClient
+from monitor.broker.factory import build_client
 from monitor.config import load_instruments, load_settings
 from monitor.data.historical import load_history
 from monitor.data.mock import make_mock_history
@@ -67,11 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         settings = load_settings()
         instruments = settings.instruments
-        client = ShioajiClient(
-            api_key=settings.shioaji_api_key,
-            secret_key=settings.shioaji_secret_key,
-            simulation=settings.shioaji_simulation,
-        )
+        client = build_client(settings)
         client.login()
         try:
             history = load_history(client, instruments, lookback_days=args.days)

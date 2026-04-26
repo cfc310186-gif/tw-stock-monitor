@@ -19,6 +19,12 @@ dev = [
   "pytest-asyncio>=0.23",
   "ruff>=0.5",
 ]
+ib = [
+  # Interactive Brokers integration for overseas futures (CME/NYMEX/COMEX/…).
+  # Lazy-imported by monitor.broker.ib_client; install only if you watch
+  # overseas_futures symbols.
+  "ib_insync>=0.9.86",
+]
 
 [project.scripts]
 monitor = "monitor.app:main"
