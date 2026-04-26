@@ -1,6 +1,11 @@
 symbols:
-  - "2330"
-  - "2317"
-  - "2454"
-  - "0050"
-  - "2603"
+  - "2330"     # 台積電
+  - "2317"     # 鴻海
+  - "2454"     # 聯發科
+  - "0050"     # 元大台灣50 ETF
+  - "2603"     # 長榮
+  # Futures (期貨) — symbol must contain letters; broker auto-routes to
+  # Contracts.Futures. R1 = 連續近月 (auto-rolls); a specific month would
+  # be e.g. MXF202506.
+  # - "MXFR1"  # 小台連續近月
+  # - "TXFR1"  # 大台連續近月
