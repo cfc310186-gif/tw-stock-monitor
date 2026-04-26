@@ -77,14 +77,11 @@ def test_change_metrics_computes_diff_and_pct():
 # ---------------------------------------------------------------------------
 
 def _install_fake_ib_insync(monkeypatch):
-    """Stub ib_insync so the module can be imported without the package.
+    """Stub the IB shim so the module can be imported without the package.
 
-    Provides a Future class compatible with the resolver call site.
+    Provides a Future class compatible with the resolver call site. Stubs
+    BOTH ib_async (preferred) and ib_insync (legacy fallback).
     """
-    fake = types.ModuleType("ib_insync")
-    fake.IB = MagicMock
-    fake.util = SimpleNamespace(startLoop=lambda: None, df=lambda bars: bars)
-
     class _Future:
         def __init__(self, symbol="", exchange="", **kwargs):
             self.symbol = symbol
@@ -92,7 +89,14 @@ def _install_fake_ib_insync(monkeypatch):
             for k, v in kwargs.items():
                 setattr(self, k, v)
 
+    fake = types.ModuleType("ib_async")
+    fake.IB = MagicMock
+    fake.util = SimpleNamespace(startLoop=lambda: None, df=lambda bars: bars)
     fake.Future = _Future
+    monkeypatch.setitem(sys.modules, "ib_async", fake)
+
+    # Also pin ib_insync to the same module so legacy fallback works in
+    # case some path tries it.
     monkeypatch.setitem(sys.modules, "ib_insync", fake)
     return fake
 
@@ -181,15 +185,19 @@ def test_kbars_rejects_non_overseas_type():
         client.kbars("2330", InstrumentType.STOCK, "2024-01-01", "2024-01-31")
 
 
-def test_login_without_ib_insync_raises_clear_error(monkeypatch):
-    """If ib_insync isn't installed, login() should give a useful hint."""
+def test_login_without_either_ib_module_raises_clear_error(monkeypatch):
+    """If neither ib_async nor ib_insync is installed, login() should
+    give a useful hint pointing at the [ib] extra."""
+    saved_async = sys.modules.pop("ib_async", None)
+    saved_insync = sys.modules.pop("ib_insync", None)
+    monkeypatch.setitem(sys.modules, "ib_async", None)
     monkeypatch.setitem(sys.modules, "ib_insync", None)
     client = IBClient(host="127.0.0.1", port=4002)
-    # Force ImportError by replacing the module with None
-    saved = sys.modules.pop("ib_insync", None)
     try:
         with pytest.raises(ImportError, match=r"\.\[ib\]"):
             client.login()
     finally:
-        if saved is not None:
-            sys.modules["ib_insync"] = saved
+        if saved_async is not None:
+            sys.modules["ib_async"] = saved_async
+        if saved_insync is not None:
+            sys.modules["ib_insync"] = saved_insync

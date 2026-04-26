@@ -86,20 +86,34 @@ class IBClient:
     # ------------------------------------------------------------------
 
     def login(self) -> None:
+        # Python 3.12+ removed implicit event-loop creation. eventkit (used
+        # by ib_insync) touches the loop at import time, so create one first.
+        import asyncio
         try:
-            from ib_insync import IB, util
-        except ImportError as exc:
-            raise ImportError(
-                "ib_insync is not installed. Run `pip install -e \".[ib]\"` "
-                "to enable overseas futures via IB."
-            ) from exc
-        util.startLoop()  # patch the running asyncio loop, harmless if none
+            asyncio.get_event_loop()
+        except RuntimeError:
+            asyncio.set_event_loop(asyncio.new_event_loop())
+
+        # Prefer ib_async (maintained fork that fixes Python 3.12+ compat);
+        # fall back to legacy ib_insync if only that is installed.
+        try:
+            from ib_async import IB, util
+        except ImportError:
+            try:
+                from ib_insync import IB, util
+            except ImportError as exc:
+                raise ImportError(
+                    "Neither ib_async nor ib_insync is installed. Run "
+                    "`pip install -e \".[ib]\"` (installs ib_async, the "
+                    "actively-maintained fork)."
+                ) from exc
+
+        util.startLoop()  # patch the asyncio loop so sync calls work inline
         self._ib = IB()
         logger.info("IB connect {}:{} (clientId={}, readonly={})",
                     self._host, self._port, self._client_id, self._readonly)
         self._ib.connect(self._host, self._port,
                          clientId=self._client_id, readonly=self._readonly)
-        # 1=Live, 3=Delayed-only fallback if no subscription
         self._ib.reqMarketDataType(self._market_data_type)
         logger.info("IB connected")
 
@@ -129,7 +143,10 @@ class IBClient:
         if raw_symbol in self._contracts:
             return self._contracts[raw_symbol]
 
-        from ib_insync import Future
+        try:
+            from ib_async import Future
+        except ImportError:
+            from ib_insync import Future
 
         sym, ex_override = _split_symbol(raw_symbol)
         exchange = ex_override or _DEFAULT_EXCHANGE.get(sym)
@@ -215,7 +232,10 @@ class IBClient:
     ) -> pd.DataFrame:
         if itype is not InstrumentType.OVERSEAS_FUTURES:
             raise ValueError(f"IBClient only handles overseas futures, got {itype}")
-        from ib_insync import util
+        try:
+            from ib_async import util
+        except ImportError:
+            from ib_insync import util
 
         contract = self._resolve_front_month(symbol)
 
