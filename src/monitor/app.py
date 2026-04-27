@@ -25,6 +25,9 @@ _DEFAULT_RULES_YAML = _PROJECT_ROOT / "config" / "rules.yaml"
 _DEFAULT_DB_PATH = _PROJECT_ROOT / "signals.db"
 _POLL_INTERVAL = 20
 _RECONNECT_DELAYS = [2, 4, 8, 16, 32]
+# When `seconds_until_next_open` reports no session within its 8-day search
+# horizon (long holidays, etc.), recheck periodically rather than exit.
+_IDLE_RECHECK_INTERVAL = 3600
 
 
 def _rules_path() -> Path:
@@ -90,13 +93,37 @@ async def _run_market_session(
     client, builder, engine, store, notifier, settings,
     stop_event: asyncio.Event,
 ) -> None:
-    logger.info("Market open — polling every {}s for {}",
+    """Run forever: poll while in session, sleep across gaps (day↔night, overnight,
+    weekend). Only the stop signal exits this loop."""
+    logger.info("Monitor running — polls every {}s, sleeps between sessions, "
+                "exits only on stop signal. Active types: {}",
                 _POLL_INTERVAL,
                 ", ".join(t.value for t in settings.active_types))
     errors = 0
     types = settings.active_types
+    was_in_session = False
 
-    while scheduler.any_in_session(types) and not stop_event.is_set():
+    while not stop_event.is_set():
+        if not scheduler.any_in_session(types):
+            if was_in_session:
+                logger.info("Session closed at {} — waiting for next open",
+                            datetime.now(_TZ).strftime("%H:%M"))
+                was_in_session = False
+            wait = scheduler.seconds_until_next_open(types)
+            if wait == float("inf"):
+                logger.warning("No upcoming session within horizon — sleeping {}s and retrying",
+                               _IDLE_RECHECK_INTERVAL)
+                await _sleep_or_stop(_IDLE_RECHECK_INTERVAL, stop_event)
+                continue
+            logger.info("Next session opens in {:.0f} min", wait / 60)
+            await _sleep_or_stop(wait, stop_event)
+            continue
+
+        if not was_in_session:
+            logger.info("Session open at {} — polling every {}s",
+                        datetime.now(_TZ).strftime("%H:%M"), _POLL_INTERVAL)
+            was_in_session = True
+
         try:
             await _poll_once(client, builder, engine, store, notifier, settings)
             errors = 0
@@ -109,10 +136,7 @@ async def _run_market_session(
 
         await _sleep_or_stop(_POLL_INTERVAL, stop_event)
 
-    if stop_event.is_set():
-        logger.info("Stop signal received — exiting market loop")
-    else:
-        logger.info("All sessions closed at {}", datetime.now(_TZ).strftime("%H:%M"))
+    logger.info("Stop signal received — exiting market loop")
 
 
 async def _sleep_or_stop(seconds: float, stop_event: asyncio.Event) -> None:
@@ -145,10 +169,16 @@ async def _run() -> int:
             pass  # Windows lacks add_signal_handler for SIGTERM
 
     types = settings.active_types
+    # Bootstrap needs live broker data, which is only available during a
+    # session. Wait for the first open before logging in.
     wait = scheduler.seconds_until_next_open(types)
-    if wait == float("inf"):
-        logger.info("No upcoming session for active types ({}) — exiting",
-                    ", ".join(t.value for t in types))
+    while wait == float("inf") and not stop_event.is_set():
+        logger.warning("No upcoming session within horizon — sleeping {}s and retrying",
+                       _IDLE_RECHECK_INTERVAL)
+        await _sleep_or_stop(_IDLE_RECHECK_INTERVAL, stop_event)
+        wait = scheduler.seconds_until_next_open(types)
+    if stop_event.is_set():
+        logger.info("Stop signal received during pre-open wait — exiting")
         store.close()
         return 0
     if wait > 0:
@@ -169,14 +199,14 @@ async def _run() -> int:
             for t in settings.active_types
         )
         await notifier.send(
-            f"✅ monitor 啟動\n"
+            f"✅ monitor 啟動（持續執行至手動停止）\n"
             f"監測 {len(settings.symbols)} 檔（{type_summary}）\n"
             f"規則: {[r.name for r in engine._rules]}"
         )
         await _run_market_session(
             client, builder, engine, store, notifier, settings, stop_event,
         )
-        await notifier.send("🔕 monitor 收盤停止")
+        await notifier.send("🔕 monitor 已停止")
     except Exception as exc:
         logger.exception("Fatal: {}", exc)
         try:
