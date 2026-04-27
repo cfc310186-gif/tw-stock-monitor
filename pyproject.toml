@@ -9,6 +9,8 @@ dependencies = [
   "pyyaml>=6",
   "python-dotenv>=1",
   "loguru>=0.7",
+  "pandas>=2.0",
+  "numpy>=1.24",
 ]
 
 [project.optional-dependencies]
@@ -17,9 +19,23 @@ dev = [
   "pytest-asyncio>=0.23",
   "ruff>=0.5",
 ]
+ib = [
+  # Interactive Brokers integration for overseas futures (CME/NYMEX/COMEX/…).
+  # ib_async is the actively-maintained fork of ib_insync — it fixes the
+  # Python 3.12+ event-loop incompatibility (eventkit calls
+  # asyncio.get_event_loop() at import time).
+  # Lazy-imported by monitor.broker.ib_client; install only if you watch
+  # overseas_futures symbols.
+  "ib_async>=1.0.0",
+]
 
 [project.scripts]
 monitor = "monitor.app:main"
+version = "monitor.testing_flow:show_version"
+stock_testing = "monitor.testing_flow:testing_stock_ordering"
+futures_testing = "monitor.testing_flow:testing_futures_ordering"
+indicators_demo = "monitor.demo:indicators_demo"
+monitor-backtest = "monitor.backtest.cli:backtest_cli"
 
 [build-system]
 requires = ["setuptools>=68"]

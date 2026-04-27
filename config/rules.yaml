@@ -1,0 +1,128 @@
+# Rule names must contain the rule-class key as a substring:
+#   bb_reversal | ma_cross_reversal | range_breakout
+#
+# applies_to (optional, default: all types) constrains which instrument types
+# the rule fires on. Allowed values: stock | domestic_futures | overseas_futures.
+# Use this to keep separate min_volume_ratio / cooldown values per market.
+
+# ---------------------------------------------------------------------------
+# Stocks
+# ---------------------------------------------------------------------------
+- name: bb_reversal_5m_stock
+  enabled: true
+  applies_to: stock
+  timeframe: 5m
+  side: lower
+  period: 20
+  stddev: 2
+  min_volume_ratio: 1.5     # tuned for TWSE/TPEx volume
+  cooldown_minutes: 30
+
+- name: bb_reversal_upper_5m_stock
+  enabled: false
+  applies_to: stock
+  timeframe: 5m
+  side: upper
+  period: 20
+  stddev: 2
+  min_volume_ratio: 1.5
+  cooldown_minutes: 30
+
+- name: ma_cross_reversal_up_5m_stock
+  enabled: false
+  applies_to: stock
+  timeframe: 5m
+  short: 5
+  long: 20
+  direction: up
+  ma_type: ema
+  cooldown_minutes: 30
+
+- name: range_breakout_up_15m_stock
+  enabled: false
+  applies_to: stock
+  timeframe: 15m
+  period: 20
+  direction: up
+  min_volume_ratio: 1.5
+  cooldown_minutes: 60
+
+# Daily versions — re-evaluated intraday using today's evolving daily bar.
+# bar_close_time stays as today's date so each rule fires at most once per
+# day per symbol via the engine's bar-level dedup.
+- name: bb_reversal_1d_stock
+  enabled: false
+  applies_to: stock
+  timeframe: 1d
+  side: lower
+  period: 20
+  stddev: 2
+  min_volume_ratio: 1.5
+  cooldown_minutes: 1440      # 一天最多一次
+
+- name: ma_cross_reversal_up_1d_stock
+  enabled: false
+  applies_to: stock
+  timeframe: 1d
+  short: 5
+  long: 20
+  direction: up
+  ma_type: ema
+  cooldown_minutes: 1440
+
+- name: range_breakout_up_1d_stock
+  enabled: false
+  applies_to: stock
+  timeframe: 1d
+  period: 20
+  direction: up
+  min_volume_ratio: 1.5
+  cooldown_minutes: 1440
+
+# ---------------------------------------------------------------------------
+# Domestic futures (TXF / MXF / EXF / FXF)
+# Volume profile differs from stocks — typically use a lower threshold so
+# the rule isn't choked off during quieter sessions.
+# ---------------------------------------------------------------------------
+- name: bb_reversal_5m_dfut
+  enabled: false
+  applies_to: domestic_futures
+  timeframe: 5m
+  side: lower
+  period: 20
+  stddev: 2
+  min_volume_ratio: 1.2     # 期貨成交分布較均勻，門檻調低
+  cooldown_minutes: 30
+
+- name: range_breakout_up_15m_dfut
+  enabled: false
+  applies_to: domestic_futures
+  timeframe: 15m
+  period: 20
+  direction: up
+  min_volume_ratio: 1.3
+  cooldown_minutes: 60
+
+# ---------------------------------------------------------------------------
+# Overseas futures (CME / CBOT / Eurex …)
+# Broker integration is a stub today; rules are listed so config and
+# backtest can begin once a data source is wired.
+# ---------------------------------------------------------------------------
+- name: bb_reversal_5m_ofut
+  enabled: false
+  applies_to: overseas_futures
+  timeframe: 5m
+  side: lower
+  period: 20
+  stddev: 2
+  min_volume_ratio: 1.3
+  cooldown_minutes: 30
+
+- name: range_breakout_up_15m_ofut
+  enabled: false
+  applies_to: overseas_futures
+  timeframe: 15m
+  period: 20
+  direction: up
+  min_volume_ratio: 1.4
+  cooldown_minutes: 60
