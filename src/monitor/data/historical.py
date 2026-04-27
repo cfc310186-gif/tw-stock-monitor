@@ -11,13 +11,17 @@ from monitor.instruments import InstrumentType
 if TYPE_CHECKING:
     from monitor.broker.shioaji_client import ShioajiClient
 
-# Timeframe name → pandas resample rule (None = keep 1-min as-is)
+# Timeframe name → pandas resample rule (None = keep 1-min as-is).
+# "1d" uses calendar-day boundaries — labels each daily bar at 00:00 of
+# that date (label="left", closed="left") so the bar timestamp matches
+# the trading day intuitively.
 TIMEFRAMES: dict[str, str | None] = {
     "1m": None,
     "5m": "5min",
     "15m": "15min",
     "30m": "30min",
     "60m": "60min",
+    "1d": "1D",
 }
 
 OHLCV_AGG = {
@@ -32,11 +36,17 @@ OHLCV_AGG = {
 def resample_bars(df_1m: pd.DataFrame, rule: str) -> pd.DataFrame:
     """Resample a 1-min OHLCV DataFrame to a coarser timeframe.
 
-    label='right', closed='right': bar at 09:05 contains 09:01–09:05.
+    For intraday bars (5min … 60min) we use label='right', closed='right'
+    so the bar at 09:05 contains 09:01–09:05 — matches the TW broker
+    convention. For daily bars we use label='left', closed='left' so the
+    bar at 2024-01-02 00:00 represents trading on 2024-01-02.
     Rows with no trades (NaN close) are dropped.
     """
+    is_daily = rule.upper() in ("1D", "D")
+    label = "left" if is_daily else "right"
+    closed = "left" if is_daily else "right"
     return (
-        df_1m.resample(rule, label="right", closed="right")
+        df_1m.resample(rule, label=label, closed=closed)
         .agg(OHLCV_AGG)
         .dropna(subset=["close"])
     )

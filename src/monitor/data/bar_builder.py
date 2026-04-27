@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import collections
-from datetime import datetime
+from datetime import date, datetime
 
 import pandas as pd
 from loguru import logger
 
 from monitor.data.historical import TIMEFRAMES, resample_bars
 
-# Minutes covered by each closed timeframe boundary
+# Minutes covered by each closed timeframe boundary (intraday only).
 _TF_MINUTES: dict[str, int] = {
     "1m": 1,
     "5m": 5,
@@ -127,7 +127,8 @@ class BarBuilder:
                         self._bars[symbol][tf].append(resampled.iloc[-1])
                         closed.append(tf)
 
-        # Reset pending bar
+        # Reset pending bar (use new tick's price; previous bar already
+        # appended to the 1m deque above).
         self._pending[symbol] = {
             "open": price,
             "high": price,
@@ -138,6 +139,13 @@ class BarBuilder:
             "ts": ts,
         }
 
+        # Daily timeframe — rebuild today's bar from today's closed 1-min
+        # bars + the just-reset pending bar, so daily.close always tracks
+        # the latest tick (per Plan §7.2 daily exception).
+        if "1d" in self._bars.get(symbol, {}):
+            if self._update_daily_bar(symbol, ts):
+                closed.append("1d")
+
         if closed:
             logger.debug("{}: closed bars {}", symbol, closed)
 
@@ -145,3 +153,84 @@ class BarBuilder:
 
     def symbols(self) -> list[str]:
         return list(self._bars.keys())
+
+    # ------------------------------------------------------------------
+    # Daily bar maintenance
+    # ------------------------------------------------------------------
+
+    def _update_daily_bar(self, symbol: str, ts: datetime) -> bool:
+        """Rebuild today's daily bar from today's closed 1-min bars + the
+        currently-open pending bar.
+
+        Including the pending bar means today's daily.close tracks the
+        latest tick rather than lagging by one minute, which is what
+        intraday daily-rule evaluation needs.
+
+        Returns True if today's bar was added/updated.
+        """
+        daily_dq = self._bars[symbol].get("1d")
+        if daily_dq is None:
+            return False
+
+        today: date = ts.date()
+        today_1m = [b for b in self._bars[symbol]["1m"]
+                    if _bar_date(b) == today]
+        pending = self._pending.get(symbol)
+        has_pending_today = (pending is not None
+                             and pending["ts"].date() == today)
+
+        if not today_1m and not has_pending_today:
+            return False
+
+        opens: list[float] = []
+        highs: list[float] = []
+        lows: list[float] = []
+        last_close: float | None = None
+        total_volume: int = 0
+
+        for bar in today_1m:
+            opens.append(float(bar["open"]))
+            highs.append(float(bar["high"]))
+            lows.append(float(bar["low"]))
+            last_close = float(bar["close"])
+            total_volume += int(bar["volume"])
+
+        if has_pending_today:
+            opens.append(float(pending["open"]))
+            highs.append(float(pending["high"]))
+            lows.append(float(pending["low"]))
+            last_close = float(pending["close"])  # latest tick wins
+            # pending bar's volume isn't finalised yet; skip aggregation
+            # so daily volume doesn't double-count the in-progress minute.
+
+        agg = pd.Series(
+            {
+                "open": opens[0],
+                "high": max(highs),
+                "low": min(lows),
+                "close": last_close,
+                "volume": total_volume,
+            },
+            name=(pd.Timestamp(today, tz=ts.tzinfo)
+                  if ts.tzinfo else pd.Timestamp(today)),
+        )
+
+        if daily_dq and _bar_date(daily_dq[-1]) == today:
+            daily_dq[-1] = agg
+        else:
+            daily_dq.append(agg)
+        return True
+
+
+def _bar_date(bar: pd.Series) -> date | None:
+    """Extract the date from a bar's index (Series.name) — handles both
+    pandas Timestamp and stdlib datetime / date."""
+    name = bar.name
+    if name is None:
+        return None
+    if hasattr(name, "date"):
+        d = name.date()
+        return d if isinstance(d, date) else None
+    if isinstance(name, date):
+        return name
+    return None
