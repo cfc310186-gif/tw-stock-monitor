@@ -111,21 +111,23 @@ class BarBuilder:
         self._bars[symbol]["1m"].append(closed_bar)
         closed.append("1m")
 
-        # Check each coarser timeframe
+        # resample_bars uses label='right', closed='right' for intraday,
+        # so the 09:05 5-min bar spans 1-min bars 09:01..09:05.
+        bar_min = pending["ts"].minute
         for tf, tf_min in _TF_MINUTES.items():
             if tf == "1m":
                 continue
-            bar_min = pending["ts"].minute
-            if bar_min % tf_min == tf_min - 1 or len(self._bars[symbol]["1m"]) >= tf_min:
-                # Resample the last tf_min 1-min bars
-                window_1m = list(self._bars[symbol]["1m"])[-tf_min:]
-                if len(window_1m) == tf_min:
-                    df_slice = pd.DataFrame(window_1m)
-                    rule = f"{tf_min}min"
-                    resampled = resample_bars(df_slice, rule)
-                    if not resampled.empty:
-                        self._bars[symbol][tf].append(resampled.iloc[-1])
-                        closed.append(tf)
+            if bar_min % tf_min != 0:
+                continue
+            window_1m = list(self._bars[symbol]["1m"])[-tf_min:]
+            if len(window_1m) < tf_min:
+                continue
+            df_slice = pd.DataFrame(window_1m)
+            resampled = resample_bars(df_slice, f"{tf_min}min")
+            if resampled.empty:
+                continue
+            self._bars[symbol][tf].append(resampled.iloc[-1])
+            closed.append(tf)
 
         # Reset pending bar (use new tick's price; previous bar already
         # appended to the 1m deque above).
