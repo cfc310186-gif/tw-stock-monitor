@@ -25,7 +25,6 @@ sees a stable identifier even when rolls happen.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -71,12 +70,14 @@ class IBClient:
         client_id: int = 1,
         readonly: bool = True,
         market_data_type: int = 1,   # 1=Live, 3=Delayed, 4=Delayed-Frozen
+        market_data_wait_seconds: float = 10.0,
     ) -> None:
         self._host = host
         self._port = port
         self._client_id = client_id
         self._readonly = readonly
         self._market_data_type = market_data_type
+        self._market_data_wait_seconds = market_data_wait_seconds
         self._ib: Any = None  # set on login()
         self._contracts: dict[str, Any] = {}     # user_sym -> qualified Contract
         self._tickers: dict[str, Any] = {}       # user_sym -> live Ticker
@@ -97,10 +98,10 @@ class IBClient:
         # Prefer ib_async (maintained fork that fixes Python 3.12+ compat);
         # fall back to legacy ib_insync if only that is installed.
         try:
-            from ib_async import IB, util
+            from ib_async import IB
         except ImportError:
             try:
-                from ib_insync import IB, util
+                from ib_insync import IB
             except ImportError as exc:
                 raise ImportError(
                     "Neither ib_async nor ib_insync is installed. Run "
@@ -108,7 +109,6 @@ class IBClient:
                     "actively-maintained fork)."
                 ) from exc
 
-        util.startLoop()  # patch the asyncio loop so sync calls work inline
         self._ib = IB()
         logger.info("IB connect {}:{} (clientId={}, readonly={})",
                     self._host, self._port, self._client_id, self._readonly)
@@ -203,11 +203,15 @@ class IBClient:
             if ticker is None:
                 ticker = self._ib.reqMktData(contract, "", False, False)
                 self._tickers[raw_sym] = ticker
-                self._ib.sleep(2)   # let the first tick arrive
+                self._wait_for_price(ticker)
 
             close = _pick_price(ticker)
             if close is None:
-                logger.warning("IB no live price yet for {}, skipping", raw_sym)
+                logger.warning(
+                    "IB no price yet for {}, skipping. {}",
+                    raw_sym,
+                    _ticker_debug(ticker),
+                )
                 continue
 
             change_price, change_rate = _change_metrics(ticker, close)
@@ -218,10 +222,18 @@ class IBClient:
                     close=float(close),
                     change_price=float(change_price),
                     change_rate=float(change_rate),
-                    total_volume=int(ticker.volume or 0),
+                    total_volume=_safe_int(getattr(ticker, "volume", 0)),
                 )
             )
         return rows
+
+    def _wait_for_price(self, ticker) -> None:
+        """Wait briefly for the first usable market-data update."""
+        deadline = datetime.now().timestamp() + self._market_data_wait_seconds
+        while datetime.now().timestamp() < deadline:
+            self._ib.sleep(0.25)
+            if _pick_price(ticker) is not None:
+                return
 
     def kbars(
         self,
@@ -282,8 +294,13 @@ class IBClient:
 
 def _pick_price(ticker) -> float | None:
     """Pick a sensible 'last' price even when last tick is missing."""
-    for attr in ("last", "marketPrice", "close", "bid", "ask"):
+    for attr in ("last", "marketPrice", "markPrice", "close", "bid", "ask"):
         v = getattr(ticker, attr, None)
+        if callable(v):
+            try:
+                v = v()
+            except Exception:
+                continue
         if v is None:
             continue
         try:
@@ -307,3 +324,29 @@ def _change_metrics(ticker, last: float) -> tuple[float, float]:
         return 0.0, 0.0
     diff = last - prev
     return diff, (diff / prev) * 100.0
+
+
+def _safe_int(value) -> int:
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return 0
+    if value != value or value <= 0:
+        return 0
+    return int(value)
+
+
+def _fmt_ticker_value(ticker, attr: str) -> str:
+    value = getattr(ticker, attr, None)
+    if callable(value):
+        try:
+            value = value()
+        except Exception as exc:
+            return f"{attr}=<error:{exc}>"
+    return f"{attr}={value!r}"
+
+
+def _ticker_debug(ticker) -> str:
+    attrs = ["marketDataType", "last", "marketPrice", "markPrice", "bid", "ask", "close", "volume"]
+    tick_count = len(getattr(ticker, "ticks", []) or [])
+    return ", ".join(_fmt_ticker_value(ticker, a) for a in attrs) + f", ticks={tick_count}"

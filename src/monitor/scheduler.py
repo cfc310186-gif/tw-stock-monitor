@@ -14,7 +14,6 @@ from zoneinfo import ZoneInfo
 
 from monitor.instruments import (
     InstrumentType,
-    SessionWindow,
     poll_windows,
 )
 

@@ -36,6 +36,7 @@ stock_testing = "monitor.testing_flow:testing_stock_ordering"
 futures_testing = "monitor.testing_flow:testing_futures_ordering"
 indicators_demo = "monitor.demo:indicators_demo"
 monitor-backtest = "monitor.backtest.cli:backtest_cli"
+overseas_quote_check = "monitor.broker.ib_quote_check:main"
 
 [build-system]
 requires = ["setuptools>=68"]

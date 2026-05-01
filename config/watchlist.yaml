@@ -8,17 +8,16 @@
 
 stocks:
   - "2330"        # 台積電
-  - "2317"        # 鴻海
+  - "6683"        # 昇陽半導體
   - "2454"        # 聯發科
   - "0050"        # 元大台灣50 ETF
-  - "2603"        # 長榮
   # 主動式 ETF / 權證 / ETN 也走 stocks (TWSE/TPEx 同個 namespace):
-  # - "00940"
+  - "00981A"
   # - "081234"
 
 domestic_futures:
   # TAIFEX 期貨。R1 = 連續近月 (auto-roll), R2 = 連續次月，特定月份用 8 碼 e.g. MXF202506。
-  # - "MXFR1"     # 小台連續近月
+  - "MXFR1"     # 小台連續近月
   # - "TXFR1"     # 大台連續近月
 
 overseas_futures:
@@ -26,7 +25,7 @@ overseas_futures:
   # 預設帶 IB exchange 路由：MNQ→CME / MCL→NYMEX / MGC→COMEX / SIL→COMEX。
   # 用 "SYMBOL@EXCHANGE" 可手動指定，例: "NQ@CME"。
   # 連續近月：bare symbol 即可，IBClient 自動找最近月並在到期前換月。
-  # - "MNQ"       # 小那 Micro E-mini Nasdaq-100
+  - "MNQ"       # 小那 Micro E-mini Nasdaq-100
   # - "MCL"       # 小輕原油 Micro WTI Crude
   # - "MGC"       # 小金 Micro Gold
   # - "SIL"       # 小白銀 Silver MINI 1000 oz

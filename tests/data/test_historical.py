@@ -1,7 +1,4 @@
-from datetime import timezone
-
 import pandas as pd
-import pytest
 
 from monitor.data.historical import TIMEFRAMES, resample_bars
 

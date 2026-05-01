@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 from monitor.rules.base import Rule, Signal
 from monitor.rules.bb_reversal import BbReversalRule

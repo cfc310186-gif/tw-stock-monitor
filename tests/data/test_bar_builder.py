@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from monitor.data.bar_builder import BarBuilder
-from monitor.data.historical import TIMEFRAMES
+from monitor.data.historical import TIMEFRAMES, resample_bars
 
 
 def _make_hist(n: int = 60) -> dict[str, dict[str, pd.DataFrame]]:
@@ -26,8 +26,6 @@ def _make_hist(n: int = 60) -> dict[str, dict[str, pd.DataFrame]]:
         },
         index=idx,
     )
-    from monitor.data.historical import resample_bars, TIMEFRAMES
-
     frames: dict[str, pd.DataFrame] = {"1m": df_1m}
     for tf, rule in TIMEFRAMES.items():
         if rule is not None:

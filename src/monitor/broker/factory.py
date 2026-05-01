@@ -26,5 +26,7 @@ def build_client(settings) -> MultiBrokerClient:
             port=settings.ib_port,
             client_id=settings.ib_client_id,
             readonly=settings.ib_readonly,
+            market_data_type=settings.ib_market_data_type,
+            market_data_wait_seconds=settings.ib_market_data_wait_seconds,
         )
     return MultiBrokerClient(shioaji=shioaji, ib=ib)

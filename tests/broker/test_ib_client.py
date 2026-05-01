@@ -54,6 +54,11 @@ def test_pick_price_falls_back_when_last_missing():
     assert _pick_price(t) == 101.0
 
 
+def test_pick_price_calls_market_price_method():
+    t = SimpleNamespace(last=-1.0, marketPrice=lambda: 101.25, close=99.0)
+    assert _pick_price(t) == 101.25
+
+
 def test_pick_price_returns_none_when_all_invalid():
     t = SimpleNamespace(last=None, marketPrice=-1.0, close=0.0,
                          bid=None, ask=None)
@@ -135,7 +140,7 @@ def test_resolves_nearest_non_expired_contract(monkeypatch):
 
 
 def test_resolve_uses_default_exchange_for_known_symbols(monkeypatch):
-    fake = _install_fake_ib_insync(monkeypatch)
+    _install_fake_ib_insync(monkeypatch)
 
     client = IBClient.__new__(IBClient)
     client._contracts = {}

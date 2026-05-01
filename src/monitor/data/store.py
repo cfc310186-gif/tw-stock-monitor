@@ -27,6 +27,8 @@ class SignalStore:
     """Persists triggered signals to SQLite for dedup across restarts."""
 
     def __init__(self, db_path: str | Path = "signals.db") -> None:
+        db_path = Path(db_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.executescript(_DDL)
         self._conn.commit()

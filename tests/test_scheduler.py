@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from monitor import scheduler
+from monitor.instruments import InstrumentType
 
 _TZ = ZoneInfo("Asia/Taipei")
 
@@ -12,7 +13,6 @@ def _dt(weekday: int, hour: int, minute: int) -> datetime:
     """Build a tz-aware datetime. weekday: 0=Mon … 6=Sun."""
     # 2024-01-01 is a Monday (weekday=0)
     base = datetime(2024, 1, 1, tzinfo=_TZ)
-    from datetime import timedelta
     return base + timedelta(days=weekday, hours=hour, minutes=minute)
 
 
@@ -72,9 +72,6 @@ def test_seconds_until_close_zero_after_close():
 # ---------------------------------------------------------------------------
 # Per-instrument-type session checks
 # ---------------------------------------------------------------------------
-
-from monitor.instruments import InstrumentType
-
 
 def test_stock_in_session_only_during_stock_hours():
     assert scheduler.is_in_session(InstrumentType.STOCK, _dt(0, 10, 0)) is True

@@ -1,7 +1,4 @@
-import math
-
 import pandas as pd
-import pytest
 
 from monitor.indicators.compute import compute_last
 

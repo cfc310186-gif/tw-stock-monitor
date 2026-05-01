@@ -26,6 +26,8 @@ class Settings:
     ib_port: int
     ib_client_id: int
     ib_readonly: bool
+    ib_market_data_type: int
+    ib_market_data_wait_seconds: float
 
     @property
     def symbols(self) -> list[str]:
@@ -121,4 +123,6 @@ def load_settings(config_dir: Path | str = "config") -> Settings:
         ib_port=int(os.environ.get("IB_PORT", "4002")),       # 4002=Paper Gateway, 4001=Live
         ib_client_id=int(os.environ.get("IB_CLIENT_ID", "1")),
         ib_readonly=os.environ.get("IB_READONLY", "true").lower() == "true",
+        ib_market_data_type=int(os.environ.get("IB_MARKET_DATA_TYPE", "1")),
+        ib_market_data_wait_seconds=float(os.environ.get("IB_MARKET_DATA_WAIT_SECONDS", "10")),
     )

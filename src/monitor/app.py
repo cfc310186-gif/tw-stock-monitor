@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import os
 import signal
 import sys
@@ -22,7 +23,7 @@ from monitor.rules.engine import RuleEngine
 _TZ = ZoneInfo("Asia/Taipei")
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEFAULT_RULES_YAML = _PROJECT_ROOT / "config" / "rules.yaml"
-_DEFAULT_DB_PATH = _PROJECT_ROOT / "signals.db"
+_DEFAULT_DB_PATH = _PROJECT_ROOT / "data" / "signals.db"
 _POLL_INTERVAL = 20
 _RECONNECT_DELAYS = [2, 4, 8, 16, 32]
 # When `seconds_until_next_open` reports no session within its 8-day search
@@ -36,6 +37,13 @@ def _rules_path() -> Path:
 
 def _db_path() -> Path:
     return Path(os.environ.get("MONITOR_DB_PATH") or _DEFAULT_DB_PATH)
+
+
+async def _broker_call(executor, func, *args):
+    if executor is None:
+        return func(*args)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(executor, func, *args)
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +73,7 @@ def _restore_engine(engine: RuleEngine, store: SignalStore) -> None:
 # Polling loop
 # ---------------------------------------------------------------------------
 
-async def _poll_once(client, builder, engine, store, notifier, settings) -> None:
+async def _poll_once(client, builder, engine, store, notifier, settings, executor=None) -> None:
     now = datetime.now(_TZ)
     # Only poll symbols whose session is open right now — overseas futures
     # at 3am Taipei should still poll, stocks shouldn't.
@@ -76,7 +84,7 @@ async def _poll_once(client, builder, engine, store, notifier, settings) -> None
     }
     if not active:
         return
-    rows = client.snapshots(active)
+    rows = await _broker_call(executor, client.snapshots, active)
     for row in rows:
         itype = settings.instruments.get(row.code)
         closed_tfs = builder.on_snapshot(row.code, row.close, row.total_volume, now)
@@ -92,6 +100,7 @@ async def _poll_once(client, builder, engine, store, notifier, settings) -> None
 async def _run_market_session(
     client, builder, engine, store, notifier, settings,
     stop_event: asyncio.Event,
+    executor=None,
 ) -> None:
     """Run forever: poll while in session, sleep across gaps (day↔night, overnight,
     weekend). Only the stop signal exits this loop."""
@@ -125,7 +134,7 @@ async def _run_market_session(
             was_in_session = True
 
         try:
-            await _poll_once(client, builder, engine, store, notifier, settings)
+            await _poll_once(client, builder, engine, store, notifier, settings, executor)
             errors = 0
         except Exception as exc:
             errors += 1
@@ -190,9 +199,13 @@ async def _run() -> int:
             return 0
 
     client = build_client(settings)
-    client.login()
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1,
+        thread_name_prefix="broker",
+    )
     try:
-        builder = _bootstrap(client, settings)
+        await _broker_call(executor, client.login)
+        builder = await _broker_call(executor, _bootstrap, client, settings)
         _restore_engine(engine, store)
         type_summary = ", ".join(
             f"{t.value}×{len(settings.symbols_of(t))}"
@@ -204,7 +217,7 @@ async def _run() -> int:
             f"規則: {[r.name for r in engine._rules]}"
         )
         await _run_market_session(
-            client, builder, engine, store, notifier, settings, stop_event,
+            client, builder, engine, store, notifier, settings, stop_event, executor,
         )
         await notifier.send("🔕 monitor 已停止")
     except Exception as exc:
@@ -215,7 +228,10 @@ async def _run() -> int:
             pass
         return 1
     finally:
-        client.logout()
+        try:
+            await _broker_call(executor, client.logout)
+        finally:
+            executor.shutdown(wait=True)
         store.close()
 
     return 0
