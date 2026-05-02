@@ -190,6 +190,8 @@ class IBClient:
         method just reads the current values.
         """
         rows: list[SnapshotRow] = []
+        if self._tickers:
+            self._ib.sleep(0)
         for raw_sym, itype in instruments.items():
             if itype is not InstrumentType.OVERSEAS_FUTURES:
                 continue

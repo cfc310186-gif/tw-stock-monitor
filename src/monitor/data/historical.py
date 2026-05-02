@@ -33,6 +33,18 @@ OHLCV_AGG = {
 }
 
 
+MAX_LOOKBACK_DAYS_BY_TYPE: dict[InstrumentType, int] = {
+    InstrumentType.OVERSEAS_FUTURES: 5,
+}
+
+
+def _effective_lookback_days(itype: InstrumentType, requested_days: int) -> int:
+    max_days = MAX_LOOKBACK_DAYS_BY_TYPE.get(itype)
+    if max_days is None:
+        return requested_days
+    return min(requested_days, max_days)
+
+
 def resample_bars(df_1m: pd.DataFrame, rule: str) -> pd.DataFrame:
     """Resample a 1-min OHLCV DataFrame to a coarser timeframe.
 
@@ -67,10 +79,19 @@ def load_history(
         instruments = {s: InstrumentType.STOCK for s in instruments}
 
     end = date.today()
-    start = end - timedelta(days=lookback_days)
     result: dict[str, dict[str, pd.DataFrame]] = {}
 
     for sym, itype in instruments.items():
+        effective_lookback_days = _effective_lookback_days(itype, lookback_days)
+        start = end - timedelta(days=effective_lookback_days)
+        if effective_lookback_days != lookback_days:
+            logger.info(
+                "Capping history lookback for {} [{}]: {} -> {} day(s)",
+                sym,
+                itype.value,
+                lookback_days,
+                effective_lookback_days,
+            )
         logger.info("Loading history for {} [{}] ({} → {})",
                     sym, itype.value, start, end)
         try:

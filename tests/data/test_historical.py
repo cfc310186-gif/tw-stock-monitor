@@ -1,6 +1,7 @@
 import pandas as pd
 
-from monitor.data.historical import TIMEFRAMES, resample_bars
+from monitor.data.historical import TIMEFRAMES, load_history, resample_bars
+from monitor.instruments import InstrumentType
 
 
 def _make_1m(n: int = 30) -> pd.DataFrame:
@@ -65,3 +66,30 @@ def test_resample_all_timeframes():
         out = resample_bars(df, rule)
         assert not out.empty, f"Empty result for {tf}"
         assert list(out.columns) == ["open", "high", "low", "close", "volume"]
+
+
+class _FakeClient:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def kbars(self, symbol, instrument_type, *, start, end):
+        self.calls.append((symbol, instrument_type, start, end))
+        return _make_1m(60)
+
+
+def test_load_history_caps_overseas_futures_lookback():
+    client = _FakeClient()
+    load_history(
+        client,
+        {
+            "2330": InstrumentType.STOCK,
+            "MNQ": InstrumentType.OVERSEAS_FUTURES,
+        },
+        lookback_days=60,
+    )
+
+    stock_call, overseas_call = client.calls
+    assert stock_call[0] == "2330"
+    assert (stock_call[3] - stock_call[2]).days == 60
+    assert overseas_call[0] == "MNQ"
+    assert (overseas_call[3] - overseas_call[2]).days == 5

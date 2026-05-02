@@ -183,6 +183,24 @@ def test_resolve_unknown_symbol_without_exchange_raises(monkeypatch):
         client._resolve_front_month("XYZUNKNOWN")
 
 
+def test_snapshots_pumps_ib_loop_for_existing_tickers():
+    client = IBClient.__new__(IBClient)
+    client._contracts = {
+        "MNQ": SimpleNamespace(localSymbol="MNQM6"),
+    }
+    client._tickers = {
+        "MNQ": SimpleNamespace(last=100.0, close=99.0, volume=1234),
+    }
+    client._ib = MagicMock()
+
+    rows = client.snapshots({"MNQ": InstrumentType.OVERSEAS_FUTURES})
+
+    client._ib.sleep.assert_called_once_with(0)
+    assert len(rows) == 1
+    assert rows[0].code == "MNQ"
+    assert rows[0].close == 100.0
+
+
 def test_kbars_rejects_non_overseas_type():
     client = IBClient.__new__(IBClient)
     client._ib = MagicMock()
