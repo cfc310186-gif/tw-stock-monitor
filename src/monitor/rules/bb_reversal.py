@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+from loguru import logger
 
 from monitor.indicators.bbands import bbands
 from monitor.instruments import InstrumentType
@@ -42,6 +43,9 @@ class BbReversalRule(Rule):
         self._cooldown = cooldown_minutes
         self._min_volume_ratio = min_volume_ratio
         self._applies_to = applies_to or set(InstrumentType)
+        # One-time WARNING per symbol when vol_avg collapses to 0 — the
+        # rule cannot fire and the user almost certainly wants to know.
+        self._zero_vol_warned: set[str] = set()
 
     # -- Rule interface -------------------------------------------------------
 
@@ -120,6 +124,15 @@ class BbReversalRule(Rule):
         # 5. volume surge vs prior 20-bar average
         vol_avg = bars["volume"].iloc[-21:-1].mean()
         if not vol_avg or vol_avg <= 0:
+            if symbol not in self._zero_vol_warned:
+                self._zero_vol_warned.add(symbol)
+                logger.warning(
+                    "{} {} {}: cannot evaluate — prior 20-bar volume avg is "
+                    "{} (cur_vol={}). Likely missing live volume from broker; "
+                    "check market-data subscription.",
+                    symbol, self._name, self._timeframe,
+                    vol_avg, int(cur_bar.get("volume", 0)),
+                )
             return None
         vol_ratio = float(cur_bar["volume"]) / float(vol_avg)
         if vol_ratio < self._min_volume_ratio:

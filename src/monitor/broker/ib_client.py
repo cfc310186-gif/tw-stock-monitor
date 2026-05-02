@@ -81,6 +81,14 @@ class IBClient:
         self._ib: Any = None  # set on login()
         self._contracts: dict[str, Any] = {}     # user_sym -> qualified Contract
         self._tickers: dict[str, Any] = {}       # user_sym -> live Ticker
+        # Ratchet of last positive cumulative volume per symbol. IB's
+        # ticker.volume can flip back to -1/NaN transiently (reconnect,
+        # missing tick) — we hold the prior good value so the bar_builder
+        # doesn't see a spurious regression that wrecks bar_vol math.
+        self._last_volume: dict[str, int] = {}
+        # One-time diagnostic log per symbol so the user can sanity-check
+        # IB live-data subscription right when the monitor starts.
+        self._first_log_done: set[str] = set()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -216,6 +224,20 @@ class IBClient:
                 )
                 continue
 
+            raw_volume = _safe_int(getattr(ticker, "volume", 0))
+            volume = max(raw_volume, self._last_volume.get(raw_sym, 0))
+            self._last_volume[raw_sym] = volume
+
+            if raw_sym not in self._first_log_done:
+                self._first_log_done.add(raw_sym)
+                logger.info(
+                    "IB first snapshot {}: price={:.2f} volume={} (raw={}) "
+                    "marketDataType={} — verify live-data subscription if "
+                    "volume stays at 0/-1.",
+                    raw_sym, float(close), volume, raw_volume,
+                    getattr(ticker, "marketDataType", "?"),
+                )
+
             change_price, change_rate = _change_metrics(ticker, close)
             rows.append(
                 SnapshotRow(
@@ -224,7 +246,7 @@ class IBClient:
                     close=float(close),
                     change_price=float(change_price),
                     change_rate=float(change_rate),
-                    total_volume=_safe_int(getattr(ticker, "volume", 0)),
+                    total_volume=volume,
                 )
             )
         return rows
@@ -286,6 +308,11 @@ class IBClient:
         df = df.set_index("ts")[["open", "high", "low", "close", "volume"]]
         df.index.name = "ts"
         df = df.sort_index()
+        # IB's reqHistoricalData returns volume=-1 as a "no data" sentinel
+        # for some bars (e.g., FX, sparse-trading periods). Clip to 0 so
+        # the resampler's `sum` aggregation never produces a negative bar
+        # volume — which would otherwise break the rule volume gate.
+        df["volume"] = df["volume"].clip(lower=0)
         # No session filter — overseas-futures session covers ~24h
         return df
 

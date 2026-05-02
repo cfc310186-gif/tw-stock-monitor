@@ -153,6 +153,84 @@ def test_15m_fires_only_on_multiples_of_15():
     assert "15m" in closes[15]
 
 
+def test_first_poll_with_zero_volume_defers_pending():
+    """If the very first snapshot arrives with total_volume<=0 (broker
+    not yet shipping volume — common with IB right after subscribe),
+    we must NOT create the pending bar. Otherwise prev_volume=0 and the
+    next minute's bar_vol = real_total - 0 absorbs the entire day's
+    cumulative volume as one outlier bar, poisoning vol_avg in every
+    volume-gated rule for hours."""
+    builder = BarBuilder(_make_hist())
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("Asia/Taipei")
+
+    t1 = datetime(2024, 1, 2, 9, 30, 0, tzinfo=tz)
+    closed = builder.on_snapshot("2330", 100.0, 0, t1)
+    assert closed == []
+    assert builder._pending["2330"] is None  # deferred — no pending yet
+
+    # Same call again still deferred and no spam (warned set has it)
+    closed = builder.on_snapshot("2330", 100.0, 0, t1)
+    assert closed == []
+
+    # Once volume turns positive, pending is created normally.
+    t2 = datetime(2024, 1, 2, 9, 30, 30, tzinfo=tz)
+    closed = builder.on_snapshot("2330", 100.0, 5000, t2)
+    assert closed == []
+    assert builder._pending["2330"] is not None
+    assert builder._pending["2330"]["prev_volume"] == 5000
+
+
+def test_first_bar_volume_is_sane_after_deferred_start():
+    """Regression: with the defer-on-zero fix, the first live 1m bar
+    should reflect the within-minute delta, NOT the cumulative day."""
+    builder = BarBuilder(_make_hist())
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("Asia/Taipei")
+
+    # First poll: broker not ready, volume=-1 (sanitized to 0 upstream)
+    builder.on_snapshot("2330", 100.0, 0, datetime(2024, 1, 2, 9, 30, 0, tzinfo=tz))
+    # Second poll: volume now valid (50000 cumulative)
+    builder.on_snapshot("2330", 100.5, 50000, datetime(2024, 1, 2, 9, 30, 30, tzinfo=tz))
+    # Third poll: new minute → close 1m bar
+    closed = builder.on_snapshot(
+        "2330", 101.0, 50080, datetime(2024, 1, 2, 9, 31, 0, tzinfo=tz),
+    )
+    assert "1m" in closed
+    last_1m = builder.get_bars("2330", "1m").iloc[-1]
+    # bar_vol should be 80 (50080-50000), NOT 50080 (which would be the
+    # buggy outlier).
+    assert last_1m["volume"] == 80
+
+
+def test_volume_regression_does_not_reset_baseline():
+    """Broker glitch: cumulative volume regresses (e.g., reconnect). The
+    bar_builder must not adopt the smaller value as the new baseline,
+    or the very next bar would balloon when real volume returns."""
+    builder = BarBuilder(_make_hist())
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("Asia/Taipei")
+
+    # Seed with valid volume.
+    builder.on_snapshot("2330", 100.0, 10000, datetime(2024, 1, 2, 9, 30, 0, tzinfo=tz))
+    # Next minute: volume regresses to a smaller (transient bad) value.
+    closed = builder.on_snapshot(
+        "2330", 100.5, 5000, datetime(2024, 1, 2, 9, 31, 0, tzinfo=tz),
+    )
+    assert "1m" in closed
+    bar1 = builder.get_bars("2330", "1m").iloc[-1]
+    assert bar1["volume"] == 0  # regression clamped to 0 by max(0, ...)
+    # Crucially, prev_volume is held at 10000 — NOT regressed to 5000.
+    assert builder._pending["2330"]["prev_volume"] == 10000
+    # Now real volume returns: 10100. Next bar's delta is 100, not 5100.
+    closed = builder.on_snapshot(
+        "2330", 101.0, 10100, datetime(2024, 1, 2, 9, 32, 0, tzinfo=tz),
+    )
+    assert "1m" in closed
+    bar2 = builder.get_bars("2330", "1m").iloc[-1]
+    assert bar2["volume"] == 100
+
+
 def test_higher_tfs_do_not_double_close_per_minute():
     """Regression: previous logic fired 5m/15m/30m/60m every minute once
     the 1m deque had enough bars. After the fix, intermediate minutes

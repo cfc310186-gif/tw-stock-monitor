@@ -103,7 +103,7 @@ def test_daily_bar_extends_intraday():
     # Simulate ticks crossing a 1-min boundary on 2024-01-04 (a new day).
     t1 = datetime(2024, 1, 4, 9, 30, 0, tzinfo=_TZ)
     t2 = datetime(2024, 1, 4, 9, 31, 0, tzinfo=_TZ)
-    builder.on_snapshot("2330", 105.0, 0, t1)        # seeds pending bar
+    builder.on_snapshot("2330", 105.0, 1, t1)        # seeds pending bar
     closed = builder.on_snapshot("2330", 106.0, 100, t2)  # closes the 1-min
 
     assert "1m" in closed
@@ -124,7 +124,7 @@ def test_daily_bar_replaces_tail_for_same_day():
     t1 = datetime(2024, 1, 4, 9, 30, 0, tzinfo=_TZ)
     t2 = datetime(2024, 1, 4, 9, 31, 0, tzinfo=_TZ)
     t3 = datetime(2024, 1, 4, 9, 32, 0, tzinfo=_TZ)
-    builder.on_snapshot("2330", 105.0, 0, t1)
+    builder.on_snapshot("2330", 105.0, 1, t1)
     builder.on_snapshot("2330", 110.0, 100, t2)   # closes 1m: high=105
     builder.on_snapshot("2330", 95.0, 200, t3)    # closes 1m: low=95
 
@@ -142,9 +142,9 @@ def test_daily_bar_volume_aggregates():
     t1 = datetime(2024, 1, 4, 9, 30, 0, tzinfo=_TZ)
     t2 = datetime(2024, 1, 4, 9, 31, 0, tzinfo=_TZ)
     t3 = datetime(2024, 1, 4, 9, 32, 0, tzinfo=_TZ)
-    builder.on_snapshot("2330", 100.0, 0, t1)
-    builder.on_snapshot("2330", 100.0, 200, t2)   # closes 1m vol=200
-    builder.on_snapshot("2330", 100.0, 350, t3)   # closes 1m vol=150
+    builder.on_snapshot("2330", 100.0, 1, t1)     # seed prev=1
+    builder.on_snapshot("2330", 100.0, 201, t2)   # closes 1m vol=200
+    builder.on_snapshot("2330", 100.0, 351, t3)   # closes 1m vol=150
 
     daily = builder.get_bars("2330", "1d")
     last = daily.iloc[-1]

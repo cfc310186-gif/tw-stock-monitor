@@ -183,15 +183,20 @@ def test_resolve_unknown_symbol_without_exchange_raises(monkeypatch):
         client._resolve_front_month("XYZUNKNOWN")
 
 
-def test_snapshots_pumps_ib_loop_for_existing_tickers():
+def _bare_client_with_ticker(ticker, sym="MNQ", local="MNQM6"):
     client = IBClient.__new__(IBClient)
-    client._contracts = {
-        "MNQ": SimpleNamespace(localSymbol="MNQM6"),
-    }
-    client._tickers = {
-        "MNQ": SimpleNamespace(last=100.0, close=99.0, volume=1234),
-    }
+    client._contracts = {sym: SimpleNamespace(localSymbol=local)}
+    client._tickers = {sym: ticker}
     client._ib = MagicMock()
+    client._last_volume = {}
+    client._first_log_done = set()
+    return client
+
+
+def test_snapshots_pumps_ib_loop_for_existing_tickers():
+    client = _bare_client_with_ticker(
+        SimpleNamespace(last=100.0, close=99.0, volume=1234)
+    )
 
     rows = client.snapshots({"MNQ": InstrumentType.OVERSEAS_FUTURES})
 
@@ -199,6 +204,40 @@ def test_snapshots_pumps_ib_loop_for_existing_tickers():
     assert len(rows) == 1
     assert rows[0].code == "MNQ"
     assert rows[0].close == 100.0
+    assert rows[0].total_volume == 1234
+
+
+def test_snapshots_volume_ratchet_holds_last_positive():
+    """If ticker.volume regresses to -1 (IB sentinel) after a good read,
+    snapshots() must keep the last positive value so the bar_builder
+    doesn't see a backwards jump that would either drop the next bar's
+    volume to 0 or balloon it on recovery."""
+    ticker = SimpleNamespace(last=100.0, close=99.0, volume=5000)
+    client = _bare_client_with_ticker(ticker)
+
+    rows = client.snapshots({"MNQ": InstrumentType.OVERSEAS_FUTURES})
+    assert rows[0].total_volume == 5000
+
+    # Broker glitch: volume regresses to -1
+    ticker.volume = -1
+    rows = client.snapshots({"MNQ": InstrumentType.OVERSEAS_FUTURES})
+    assert rows[0].total_volume == 5000  # held at last good
+
+    # Real new total > cached; ratchet up
+    ticker.volume = 5050
+    rows = client.snapshots({"MNQ": InstrumentType.OVERSEAS_FUTURES})
+    assert rows[0].total_volume == 5050
+
+
+def test_snapshots_volume_ratchet_handles_initial_zero():
+    """First poll often arrives before the first volume tick — IB returns
+    -1 / NaN. We must report 0 (no real volume yet) so the bar_builder
+    can defer pending creation, instead of feeding a spurious value."""
+    ticker = SimpleNamespace(last=100.0, close=99.0, volume=-1)
+    client = _bare_client_with_ticker(ticker)
+
+    rows = client.snapshots({"MNQ": InstrumentType.OVERSEAS_FUTURES})
+    assert rows[0].total_volume == 0
 
 
 def test_kbars_rejects_non_overseas_type():
